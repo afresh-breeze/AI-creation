@@ -250,16 +250,16 @@
                 <p>1. 使用 A/← 键向左移动</p>
                 <p>2. 使用 D/→ 键向右移动</p>
                 <p>3. 按空格键暂停游戏</p>
-                <p>4. 躲避红色障碍物</p>
-                <p>5. 收集黄色发光的积分</p>
+                <p>4. 躲避障碍物</p>
+                <p>5. 收集星光积分</p>
                 <p>6. 达到目标分数升级关卡</p>
                 <p>7. 撞到障碍物游戏结束</p>
             </div>
             <div id="rules-mobile" style="display: none;">
                 <p>1. 在屏幕下方左右滑动控制小球</p>
                 <p>2. 点击屏幕上方任意位置暂停游戏</p>
-                <p>3. 躲避红色障碍物</p>
-                <p>4. 收集黄色发光的积分</p>
+                <p>3. 躲避障碍物</p>
+                <p>4. 收集星光积分</p>
                 <p>5. 达到目标分数升级关卡</p>
                 <p>6. 撞到障碍物游戏结束</p>
             </div>
@@ -288,7 +288,7 @@
             moveSpeed: 0.05,
             roadWidth: 12,
             roadLength: 200,
-            segments: 10,
+            segments: isMobile ? 8 : 10,
             maxDistance: 1000, // 基础最大距离
             fixedTimeStep: 1 / 60 // 固定时间步长，60fps
         };
@@ -323,8 +323,15 @@
         let obstacles = [];
         let collectibles = [];
         let collectibleBursts = [];
+        let lastBallX = 0;
+        let ballTrailNodes = [];
+        let ballTrailSystem = null;
+        let ballTrailSprites = [];
+        const ballTrailMaxNodes = isMobile ? 40 : 56;
+        let ballTrailDirection = null;
         let keys = {};
         let roadMaterial = null;
+        let vortexTexturePool = [];
 
         // 初始化游戏
         function initGame() {
@@ -371,6 +378,11 @@
             obstacles = [];
             collectibles = [];
             collectibleBursts = [];
+            ballTrailNodes = [];
+            ballTrailSystem = null;
+            ballTrailSprites = [];
+            ballTrailDirection = null;
+            vortexTexturePool = [];
             keys = {};
 
             // 清除旧场景
@@ -393,7 +405,11 @@
             camera.position.set(0, 5, 10);
 
             // 创建渲染器
-            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer = new THREE.WebGLRenderer({
+                antialias: !isMobile,
+                powerPreference: 'high-performance'
+            });
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.55 : 2));
             renderer.setSize(window.innerWidth, window.innerHeight);
             document.body.appendChild(renderer.domElement);
 
@@ -411,6 +427,14 @@
             // 创建道路
             createRoad();
 
+            // 预热漩涡纹理池，避免运行中频繁生成卡顿
+            if (vortexTexturePool.length === 0) {
+                const poolSize = isMobile ? 2 : 4;
+                for (let i = 0; i < poolSize; i++) {
+                    vortexTexturePool.push(createVortexTexture());
+                }
+            }
+
             // 更新UI
             updateUI();
 
@@ -426,16 +450,29 @@
         // 添加背景星星效果
         function addBackgroundStars() {
             const starsGeometry = new THREE.BufferGeometry();
-            const starsCount = 1000;
+            const starsCount = isMobile ? 220 : 1000;
 
             const positions = new Float32Array(starsCount * 3);
             const colors = new Float32Array(starsCount * 3);
 
             for (let i = 0; i < starsCount; i++) {
-                // 位置
-                positions[i * 3] = (Math.random() - 0.5) * 200;
-                positions[i * 3 + 1] = (Math.random() - 0.5) * 100;
-                positions[i * 3 + 2] = (Math.random() - 0.5) * 200;
+                // 位置：避开道路通道，避免在路中间出现“方块”干扰
+                let x, y, z;
+                let attempts = 0;
+                do {
+                    x = (Math.random() - 0.5) * 220;
+                    y = (Math.random() - 0.5) * 120;
+                    z = (Math.random() - 0.5) * 260;
+                    attempts++;
+                } while (
+                    attempts < 12 &&
+                    Math.abs(x) < config.roadWidth * 0.8 &&
+                    y > -2 && y < 8 &&
+                    z > -80 && z < 30
+                );
+                positions[i * 3] = x;
+                positions[i * 3 + 1] = y;
+                positions[i * 3 + 2] = z;
 
                 // 颜色
                 const color = new THREE.Color();
@@ -448,11 +485,26 @@
             starsGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
             starsGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
+            // 圆形星点纹理，避免点精灵显示成小方块
+            const starCanvas = document.createElement('canvas');
+            starCanvas.width = 32;
+            starCanvas.height = 32;
+            const sctx = starCanvas.getContext('2d');
+            const starGrad = sctx.createRadialGradient(16, 16, 0, 16, 16, 14);
+            starGrad.addColorStop(0, 'rgba(255,255,255,1)');
+            starGrad.addColorStop(0.35, 'rgba(220,235,255,0.9)');
+            starGrad.addColorStop(1, 'rgba(220,235,255,0)');
+            sctx.fillStyle = starGrad;
+            sctx.fillRect(0, 0, 32, 32);
+            const starTexture = new THREE.CanvasTexture(starCanvas);
+
             const starsMaterial = new THREE.PointsMaterial({
-                size: 0.5,
+                size: isMobile ? 0.42 : 0.55,
+                map: starTexture,
                 vertexColors: true,
                 transparent: true,
-                opacity: 0.8
+                opacity: 0.72,
+                depthWrite: false
             });
 
             const stars = new THREE.Points(starsGeometry, starsMaterial);
@@ -461,16 +513,51 @@
 
         // 创建小球
         function createBall() {
+            const createBallSurfaceTexture = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 512;
+                canvas.height = 256;
+                const ctx = canvas.getContext('2d');
+
+                const base = ctx.createLinearGradient(0, 0, canvas.width, 0);
+                base.addColorStop(0, '#3aa2d7');
+                base.addColorStop(0.5, '#7fd9ff');
+                base.addColorStop(1, '#2d88bf');
+                ctx.fillStyle = base;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                // 可见滚动细节：经向条纹 + 亮暗带
+                for (let i = 0; i < 16; i++) {
+                    const x = (i / 16) * canvas.width;
+                    ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.15)' : 'rgba(25,70,120,0.18)';
+                    ctx.fillRect(x, 0, canvas.width / 32, canvas.height);
+                }
+
+                for (let i = 0; i < 6; i++) {
+                    const y = (i / 6) * canvas.height;
+                    ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)';
+                    ctx.fillRect(0, y, canvas.width, canvas.height / 14);
+                }
+
+                const tex = new THREE.CanvasTexture(canvas);
+                tex.wrapS = THREE.RepeatWrapping;
+                tex.wrapT = THREE.RepeatWrapping;
+                tex.repeat.set(1, 1);
+                return tex;
+            };
+
             const ballGroup = new THREE.Group();
+            const surfaceMap = createBallSurfaceTexture();
 
             const core = new THREE.Mesh(
                 new THREE.SphereGeometry(0.5, 32, 32),
                 new THREE.MeshStandardMaterial({
+                    map: surfaceMap,
                     color: 0x6fd3ff,
-                    roughness: 0.18,
-                    metalness: 0.65,
+                    roughness: 0.24,
+                    metalness: 0.52,
                     emissive: 0x1a3f5a,
-                    emissiveIntensity: 0.35
+                    emissiveIntensity: 0.3
                 })
             );
 
@@ -504,10 +591,170 @@
             ballGroup.add(ring);
             ballGroup.userData.ring = ring;
             ballGroup.userData.radius = 0.5;
+            ballGroup.userData.core = core;
 
             ball = ballGroup;
             ball.position.set(0, 0.5, 0);
+            lastBallX = ball.position.x;
             scene.add(ball);
+
+            createBallTrailSystem();
+        }
+
+        function createBallTrailSystem() {
+            // 地面光路贴图：中心亮、两侧羽化、尾部渐隐（淡色）
+            const texCanvas = document.createElement('canvas');
+            texCanvas.width = 128;
+            texCanvas.height = 512;
+            const tctx = texCanvas.getContext('2d');
+            tctx.clearRect(0, 0, 128, 512);
+
+            for (let y = 0; y < 512; y++) {
+                const v = 1 - y / 512;
+                const alpha = Math.pow(v, 1.5);
+                const grad = tctx.createLinearGradient(0, 0, 128, 0);
+                grad.addColorStop(0, `rgba(70, 180, 255, 0)`);
+                grad.addColorStop(0.32, `rgba(90, 195, 255, ${alpha * 0.28})`);
+                grad.addColorStop(0.5, `rgba(220, 245, 255, ${alpha * 0.44})`);
+                grad.addColorStop(0.68, `rgba(90, 195, 255, ${alpha * 0.28})`);
+                grad.addColorStop(1, `rgba(70, 180, 255, 0)`);
+                tctx.fillStyle = grad;
+                tctx.fillRect(0, y, 128, 1);
+            }
+
+            const spriteTex = new THREE.CanvasTexture(texCanvas);
+            ballTrailSystem = new THREE.Group();
+            ballTrailSprites = [];
+            ballTrailNodes = [];
+
+            const segments = ballTrailMaxNodes - 1;
+            const geo = new THREE.PlaneGeometry(1, 1, 1, segments);
+            const mat = new THREE.MeshBasicMaterial({
+                map: spriteTex,
+                color: 0x6ecfff,
+                transparent: true,
+                opacity: 0.38,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                depthTest: true,
+                side: THREE.DoubleSide
+            });
+            const mesh = new THREE.Mesh(geo, mat);
+            // 不旋转网格，直接将顶点写在世界XZ平面（y固定贴地）
+            mesh.position.set(0, 0, 0);
+            mesh.frustumCulled = false;
+            ballTrailSystem.add(mesh);
+            ballTrailSprites.push(mesh);
+
+
+            for (let j = 0; j <= segments; j++) {
+                ballTrailNodes.push(new THREE.Vector3(0, 0.015, -1000));
+            }
+            scene.add(ballTrailSystem);
+            ballTrailDirection = new THREE.Vector3(0, 0, 1);
+        }
+
+        function updateBallRollAndTrail(dt, timeSec) {
+            if (!ball || !ballTrailSystem) return;
+
+            const ballRadius = ball.userData.radius || 0.5;
+            const dx = ball.position.x - lastBallX;
+            const dz = -config.speed; // 道路向前滚动等价为小球向 -Z 方向前进
+            const distance = Math.sqrt(dx * dx + dz * dz);
+
+            if (distance > 1e-5) {
+                // 物理滚动轴：up x displacement，确保与运动方向一致
+                const axis = new THREE.Vector3(dz, 0, -dx).normalize();
+                const angle = distance / ballRadius;
+                const q = new THREE.Quaternion().setFromAxisAngle(axis, angle);
+                ball.quaternion.premultiply(q);
+            }
+            lastBallX = ball.position.x;
+
+            // 地面光路：沿运动轨迹实时生成，停止后逐步淡去
+            const direction = new THREE.Vector3(-dx, 0, -dz);
+            if (direction.lengthSq() < 1e-5) {
+                direction.set(0, 0, 1);
+            } else {
+                direction.normalize();
+            }
+
+            if (!ballTrailDirection) {
+                ballTrailDirection = direction.clone();
+            } else {
+                ballTrailDirection.lerp(direction, 0.2).normalize();
+            }
+
+            const isMoving = Math.abs(dx) + Math.abs(dz) > 0.00008;
+            const head = new THREE.Vector3(
+                ball.position.x + ballTrailDirection.x * 0.28,
+                0.015,
+                ball.position.z + ballTrailDirection.z * 0.28
+            );
+
+            for (let j = 0; j < ballTrailNodes.length; j++) {
+                ballTrailNodes[j].z += config.speed;
+            }
+
+            if (isMoving) {
+                for (let j = ballTrailNodes.length - 1; j > 0; j--) {
+                    ballTrailNodes[j].copy(ballTrailNodes[j - 1]);
+                }
+                ballTrailNodes[0].copy(head);
+            } else {
+                // 停止移动时，光路自然淡去：前端也后移，不再注入新节点
+                for (let j = 0; j < ballTrailNodes.length - 1; j++) {
+                    ballTrailNodes[j].copy(ballTrailNodes[j + 1]);
+                }
+                ballTrailNodes[ballTrailNodes.length - 1].set(
+                    ballTrailNodes[ballTrailNodes.length - 1].x,
+                    0.015,
+                    ballTrailNodes[ballTrailNodes.length - 1].z + config.speed
+                );
+            }
+
+            const mesh = ballTrailSprites[0];
+            const posAttr = mesh.geometry.attributes.position;
+            const up = new THREE.Vector3(0, 1, 0);
+
+            for (let j = 0; j < ballTrailNodes.length; j++) {
+                const p = ballTrailNodes[j];
+                const t = j / (ballTrailNodes.length - 1); // 头->尾
+
+                let tangent = ballTrailDirection.clone();
+                if (j > 0 && j < ballTrailNodes.length - 1) {
+                    tangent.subVectors(ballTrailNodes[j - 1], ballTrailNodes[j + 1]).normalize();
+                }
+                let right = new THREE.Vector3().crossVectors(up, tangent).normalize();
+                if (right.lengthSq() < 0.0001) right.set(1, 0, 0);
+
+                // 渐细 + 收拢
+                // 头部先尖后展，避免起点出现“凸出来一块”
+                let width;
+                if (t < 0.06) {
+                    width = 0.03 + (t / 0.06) * 0.72;
+                } else {
+                    width = 0.76 * Math.pow(1 - (t - 0.06) / 0.94, 1.03) + 0.04;
+                }
+                // 取消尾部向当前球心横向回拉，避免出现“回勾”
+                const center = new THREE.Vector3(
+                    p.x,
+                    0.015,
+                    p.z
+                );
+                const pL = center.clone().addScaledVector(right, width * 0.5);
+                const pR = center.clone().addScaledVector(right, -width * 0.5);
+
+                const vIdxL = j * 2;
+                const vIdxR = j * 2 + 1;
+                posAttr.setXYZ(vIdxL, pL.x, pL.y, pL.z);
+                posAttr.setXYZ(vIdxR, pR.x, pR.y, pR.z);
+            }
+            posAttr.needsUpdate = true;
+
+            // 淡色 + 轻微呼吸，不抢主体
+            const baseOpacity = isMoving ? 0.38 : 0.2;
+            mesh.material.opacity = baseOpacity + 0.045 * Math.sin(timeSec * 6.0);
         }
 
         // 创建道路
@@ -615,35 +862,147 @@
 
         function createVortexTexture() {
             const canvas = document.createElement('canvas');
-            canvas.width = 256;
-            canvas.height = 256;
+            const vortexTexSize = isMobile ? 640 : 1024;
+            canvas.width = vortexTexSize;
+            canvas.height = vortexTexSize;
             const ctx = canvas.getContext('2d');
+            const c = canvas.width / 2;
+            const maxR = c * 0.92;
+            const rInner = 10;
 
-            const palettes = [
-                ['#5f6cff', '#40d1ff', '#b6f3ff', '#1f2744'],
-                ['#ffb14a', '#ff6f61', '#ffd56b', '#4a1f1f'],
-                ['#d0d5e4', '#9299b2', '#f0f2f9', '#2a2e40']
-            ];
-            const p = palettes[Math.floor(Math.random() * palettes.length)];
+            // 透明底：只画漩涡线条主体
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            ctx.fillStyle = p[3];
-            ctx.fillRect(0, 0, 256, 256);
-            ctx.translate(128, 128);
+            // 干净通透的亮白 / 冰蓝（不发脏、不偏紫）
+            const colors = {
+                glow: 'rgba(120, 200, 255, 0.05)',
+                ice: 'rgba(170, 220, 255, 0.46)',
+                white: 'rgba(255, 255, 255, 0.55)'
+            };
 
-            for (let i = 0; i < 180; i++) {
-                const t = i * 0.16;
-                const radius = 4 + i * 0.62;
-                const x = Math.cos(t) * radius;
-                const y = Math.sin(t) * radius;
-                const color = i % 3 === 0 ? p[0] : (i % 3 === 1 ? p[1] : p[2]);
-                ctx.strokeStyle = color;
-                ctx.lineWidth = 1.8 + (i % 5 === 0 ? 0.6 : 0);
-                ctx.beginPath();
-                ctx.arc(x, y, 2 + (i % 2), 0, Math.PI * 2);
-                ctx.stroke();
+            const drawSpiralBand = (bandIndex, bandCount) => {
+                // 外圈更疏、内圈更紧：turns 随 bandIndex 增加
+                const uBand = bandIndex / Math.max(1, bandCount - 1); // 0外 -> 1内
+                const turns = 3.2 + uBand * 5.2; // 内圈更紧凑
+                const maxTheta = turns * Math.PI * 2;
+
+                // 外圈线更粗，内圈更细（外宽内窄）
+                const wOuter = 26;
+                const wInner = 1.0;
+                const bandWidth = wInner + (wOuter - wInner) * Math.pow(1 - uBand, 1.25);
+
+                // 该层占用的半径区间：外层跨度大，内层跨度小，层层递进
+                const spanBase = (maxR - rInner);
+                const span = spanBase * (0.22 + 0.28 * Math.pow(1 - uBand, 1.2));
+                const startR = maxR - (spanBase * (0.08 + uBand * 0.82));
+                const endR = Math.max(rInner, startR - span);
+
+                const steps = isMobile ? 760 : 1200;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+
+                // 只给“最外圈靠近边缘”的螺旋线条加外发光，内圈绝对不加光
+                const isOuterBand = bandIndex === 0;
+                const glowStartR = maxR * 0.84;      // 仅在最外缘附近出现辉光
+                const glowClipInnerR = maxR * 0.82;  // 防止辉光向内侵入导致糊
+
+                for (let i = 1; i <= steps; i++) {
+                    const t = i / steps;
+                    // 由外到内收缩（自然透视：靠中心更紧密）
+                    const theta = t * maxTheta;
+                    const tight = 1 + uBand * 0.6;
+                    const r = startR - Math.pow(t, 1.18 + uBand * 0.35) * (startR - endR);
+
+                    const x = c + Math.cos(theta * tight) * r;
+                    const y = c + Math.sin(theta * tight) * r;
+                    const prevT = (i - 1) / steps;
+                    const prevTheta = prevT * maxTheta;
+                    const prevR = startR - Math.pow(prevT, 1.18 + uBand * 0.35) * (startR - endR);
+                    const px = c + Math.cos(prevTheta * tight) * prevR;
+                    const py = c + Math.sin(prevTheta * tight) * prevR;
+
+                    const w = Math.max(0.8, bandWidth * (0.22 + 0.78 * (1 - t))); // 向中心变细
+                    const rMid = (r + prevR) * 0.5;
+
+                    // 光效：仅最外圈螺旋线条的外侧辉光（不影响内圈）
+                    // 通过“仅外缘半径段 + 径向裁剪”避免把内部线条糊成一团
+                    if (isOuterBand && rMid >= glowStartR) {
+                        ctx.save();
+                        // 只允许绘制在外缘区域（r >= glowClipInnerR）
+                        ctx.beginPath();
+                        ctx.arc(c, c, maxR * 1.05, 0, Math.PI * 2);
+                        ctx.arc(c, c, glowClipInnerR, 0, Math.PI * 2, true);
+                        ctx.clip();
+
+                        ctx.strokeStyle = colors.glow;
+                        ctx.globalAlpha = 0.04;
+                        ctx.lineWidth = w * 2.8;
+                        ctx.beginPath();
+                        ctx.moveTo(px, py);
+                        ctx.lineTo(x, y);
+                        ctx.stroke();
+
+                        ctx.strokeStyle = colors.glow;
+                        ctx.globalAlpha = 0.022;
+                        ctx.lineWidth = w * 4.8;
+                        ctx.beginPath();
+                        ctx.moveTo(px, py);
+                        ctx.lineTo(x, y);
+                        ctx.stroke();
+
+                        // 第3层：极淡超宽羽化，强调晕染感，不增加亮边感
+                        ctx.strokeStyle = colors.glow;
+                        ctx.globalAlpha = 0.012;
+                        ctx.lineWidth = w * 6.2;
+                        ctx.beginPath();
+                        ctx.moveTo(px, py);
+                        ctx.lineTo(x, y);
+                        ctx.stroke();
+
+                        ctx.restore();
+                    }
+
+                    // 冰蓝主体
+                    ctx.strokeStyle = colors.ice;
+                    ctx.globalAlpha = 0.33 + 0.13 * (1 - t);
+                    ctx.lineWidth = w * 0.95;
+                    ctx.beginPath();
+                    ctx.moveTo(px, py);
+                    ctx.lineTo(x, y);
+                    ctx.stroke();
+
+                    // 白色高光（更细）
+                    ctx.strokeStyle = colors.white;
+                    ctx.globalAlpha = 0.21 + 0.15 * (1 - t);
+                    ctx.lineWidth = Math.max(0.7, w * 0.22);
+                    ctx.beginPath();
+                    ctx.moveTo(px, py);
+                    ctx.lineTo(x, y);
+                    ctx.stroke();
+                }
+            };
+
+            // 多层同心嵌套
+            const bandCount = 4;
+            // 先画内圈（清晰锐利），最后画外圈并添加外缘辉光，避免内圈被糊
+            for (let b = bandCount - 1; b >= 0; b--) {
+                drawSpiralBand(b, bandCount);
             }
 
-            return new THREE.CanvasTexture(canvas);
+            // 中心自然向内“吞噬”暗化（仍透明背景，不画外部底）
+            const centerFade = ctx.createRadialGradient(c, c, 0, c, c, c * 0.18);
+            centerFade.addColorStop(0, 'rgba(0,0,0,0.35)');
+            centerFade.addColorStop(0.55, 'rgba(0,0,0,0.12)');
+            centerFade.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = centerFade;
+            ctx.beginPath();
+            ctx.arc(c, c, c * 0.18, 0, Math.PI * 2);
+            ctx.fill();
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.minFilter = THREE.LinearFilter;
+            texture.magFilter = THREE.LinearFilter;
+            return texture;
         }
 
         function createDonutObstacle(obstacle) {
@@ -807,48 +1166,47 @@
         }
 
         function createVortexObstacle(obstacle) {
-            const texture = createVortexTexture();
+            const texture = vortexTexturePool.length
+                ? vortexTexturePool[Math.floor(Math.random() * vortexTexturePool.length)]
+                : createVortexTexture();
             texture.wrapS = THREE.ClampToEdgeWrapping;
             texture.wrapT = THREE.ClampToEdgeWrapping;
             texture.center.set(0.5, 0.5);
 
             const front = new THREE.Mesh(
-                new THREE.CircleGeometry(0.55, 48),
+                new THREE.CircleGeometry(0.55, 56),
                 new THREE.MeshStandardMaterial({
                     map: texture,
-                    roughness: 0.4,
-                    metalness: 0.08,
-                    emissive: 0x1d223a,
-                    emissiveIntensity: 0.35
+                    color: 0xffffff,
+                    transparent: true,
+                    opacity: 1,
+                    depthWrite: false,
+                    side: THREE.DoubleSide,
+                    roughness: 0.25,
+                    metalness: 0.05,
+                    emissive: 0xbfe8ff,
+                    emissiveIntensity: 0.35,
+                    emissiveMap: texture,
+                    blending: THREE.AdditiveBlending
                 })
             );
             const back = front.clone();
             back.material = front.material.clone();
             back.material.map = texture;
             back.rotation.y = Math.PI;
-            front.position.z = 0.18;
-            back.position.z = -0.18;
+            front.position.z = 0.09;
+            back.position.z = -0.09;
             obstacle.add(front);
             obstacle.add(back);
 
-            const rim = new THREE.Mesh(
-                new THREE.TorusGeometry(0.55, 0.08, 14, 64),
-                new THREE.MeshStandardMaterial({
-                    color: 0x2f3658,
-                    roughness: 0.5,
-                    metalness: 0.3,
-                    emissive: 0x202a46,
-                    emissiveIntensity: 0.22
-                })
-            );
-            rim.rotation.x = Math.PI / 2;
-            obstacle.add(rim);
-
             obstacle.userData.collider = { type: 'cylinder', radius: 0.55, halfHeight: 0.55 };
             obstacle.userData.type = 'vortex';
+            // 漩涡尺寸多样性：受控随机，避免过小/过大
+            obstacle.userData.sizeFactor = 0.88 + Math.random() * 0.38; // [0.88, 1.26]
             obstacle.userData.vortexTexture = texture;
             obstacle.userData.vortexFront = front;
             obstacle.userData.vortexBack = back;
+            obstacle.userData.vortexPhase = Math.random() * Math.PI * 2;
         }
 
         // 生成障碍物和积分
@@ -899,6 +1257,10 @@
                             const obstacle = createObstacle(false);
                             obstacle.position.set(x, obstacle.userData.hiddenY, z);
                             obstacle.scale.set(2, 2, 2);
+                            if (obstacle.userData.type === 'vortex') {
+                                const sizeFactor = obstacle.userData.sizeFactor || 1;
+                                obstacle.scale.multiplyScalar(sizeFactor);
+                            }
                             obstacles.push(obstacle);
                             scene.add(obstacle);
                         }
@@ -938,7 +1300,11 @@
 
                     if (!isOverlap) {
                         const collectible = createCollectible();
-                        collectible.position.set(x, 1, z);
+                        collectible.userData.finalY = 1;
+                        collectible.userData.fadeStartZ = -66;
+                        collectible.userData.fadeEndZ = -26;
+                        collectible.userData.baseScale = 1.2;
+                        collectible.position.set(x, collectible.userData.finalY, z);
                         collectible.scale.set(1.2, 1.2, 1.2);
                         collectibles.push(collectible);
                         scene.add(collectible);
@@ -982,7 +1348,11 @@
 
                     if (!isOverlap) {
                         const collectible = createCollectible();
-                        collectible.position.set(x, 1, z);
+                        collectible.userData.finalY = 1;
+                        collectible.userData.fadeStartZ = -66;
+                        collectible.userData.fadeEndZ = -26;
+                        collectible.userData.baseScale = 1.2;
+                        collectible.position.set(x, collectible.userData.finalY, z);
                         collectible.scale.set(1.2, 1.2, 1.2);
                         collectibles.push(collectible);
                         scene.add(collectible);
@@ -1028,10 +1398,42 @@
         // 创建积分
         function createCollectible() {
             const star = new THREE.Group();
+            const createPointedRayGeometry = (length, width, depth) => {
+                const shape = new THREE.Shape();
+                shape.moveTo(0, length / 2);
+                shape.lineTo(width / 2, 0);
+                shape.lineTo(0, -length / 2);
+                shape.lineTo(-width / 2, 0);
+                shape.closePath();
+                return new THREE.ExtrudeGeometry(shape, {
+                    depth,
+                    bevelEnabled: false
+                });
+            };
+
+            const createSoftSparkleTexture = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 128;
+                canvas.height = 128;
+                const ctx = canvas.getContext('2d');
+                const c = 64;
+
+                const gradient = ctx.createRadialGradient(c, c, 0, c, c, 56);
+                gradient.addColorStop(0, 'rgba(255,255,255,1)');
+                gradient.addColorStop(0.35, 'rgba(255,255,255,0.7)');
+                gradient.addColorStop(1, 'rgba(255,255,255,0)');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, 128, 128);
+
+                const tex = new THREE.CanvasTexture(canvas);
+                tex.needsUpdate = true;
+                return tex;
+            };
+
             const rayMaterial = new THREE.MeshStandardMaterial({
                 color: 0xffffff,
                 emissive: 0xfff4d7,
-                emissiveIntensity: 1.05,
+                emissiveIntensity: 1.2,
                 roughness: 0.12,
                 metalness: 0.22,
                 transparent: true,
@@ -1039,16 +1441,17 @@
             });
 
             const rays = [
-                { w: 0.05, h: 0.8, z: 0, rot: 0 },
-                { w: 0.8, h: 0.05, z: 0, rot: 0 },
-                { w: 0.04, h: 0.52, z: 0.01, rot: Math.PI / 4 },
-                { w: 0.04, h: 0.52, z: 0.01, rot: -Math.PI / 4 }
+                { width: 0.08, length: 0.92, z: 0, rot: 0 },
+                { width: 0.08, length: 0.92, z: 0, rot: Math.PI / 2 },
+                { width: 0.055, length: 0.62, z: 0.01, rot: Math.PI / 4 },
+                { width: 0.055, length: 0.62, z: 0.01, rot: -Math.PI / 4 }
             ];
 
             rays.forEach(ray => {
-                const mesh = new THREE.Mesh(new THREE.BoxGeometry(ray.w, ray.h, 0.04), rayMaterial);
+                const mesh = new THREE.Mesh(createPointedRayGeometry(ray.length, ray.width, 0.02), rayMaterial);
                 mesh.rotation.z = ray.rot;
                 mesh.position.z = ray.z;
+                mesh.position.y = 0;
                 star.add(mesh);
             });
 
@@ -1057,12 +1460,37 @@
                 new THREE.MeshStandardMaterial({
                     color: 0xffffff,
                     emissive: 0xffedb0,
-                    emissiveIntensity: 0.8,
+                    emissiveIntensity: 0.95,
                     transparent: true,
                     opacity: 0.9
                 })
             );
             star.add(center);
+
+            // 白色光效：小范围柔光粒子环绕，不做包裹球
+            const sparkleTexture = createSoftSparkleTexture();
+            const sparkles = [];
+            for (let i = 0; i < 6; i++) {
+                const sparkle = new THREE.Sprite(
+                    new THREE.SpriteMaterial({
+                        map: sparkleTexture,
+                        color: 0xffffff,
+                        transparent: true,
+                        opacity: 0.36,
+                        depthWrite: false,
+                        blending: THREE.AdditiveBlending
+                    })
+                );
+                sparkle.userData.phase = Math.random() * Math.PI * 2;
+                sparkle.userData.radius = 0.22 + Math.random() * 0.14;
+                sparkle.userData.speed = 1 + Math.random() * 0.9;
+                sparkle.userData.heightOffset = (Math.random() - 0.5) * 0.16;
+                sparkle.userData.size = 0.11 + Math.random() * 0.07;
+                sparkle.scale.setScalar(sparkle.userData.size);
+                star.add(sparkle);
+                sparkles.push(sparkle);
+            }
+            star.userData.sparkles = sparkles;
 
             star.userData.collectibleRadius = 0.26;
             return star;
@@ -1171,11 +1599,22 @@
                 }
 
                 if (obstacle.userData.type === 'vortex' && obstacle.userData.vortexTexture) {
-                    obstacle.rotation.z += 0.045;
-                    obstacle.userData.vortexTexture.rotation += 0.03;
-                    obstacle.userData.vortexTexture.offset.x = Math.sin(t * 1.6) * 0.02;
-                    obstacle.userData.vortexTexture.offset.y = Math.cos(t * 1.4) * 0.02;
+                    const phase = obstacle.userData.vortexPhase || 0;
+                    const spin = 0.036;
+                    obstacle.rotation.z += spin;
+                    obstacle.userData.vortexTexture.rotation += spin * 1.55;
+                    const breathe = 0.85 + 0.15 * Math.sin(t * 6.6 + phase);
+                    obstacle.userData.vortexTexture.offset.x = 0;
+                    obstacle.userData.vortexTexture.offset.y = 0;
                     obstacle.userData.vortexTexture.needsUpdate = true;
+                    const vf = obstacle.userData.vortexFront;
+                    const vb = obstacle.userData.vortexBack;
+                    if (vf && vf.material) {
+                        vf.material.emissiveIntensity = 1.05 + 0.35 * breathe;
+                    }
+                    if (vb && vb.material) {
+                        vb.material.emissiveIntensity = 0.95 + 0.28 * breathe;
+                    }
                 }
 
                 if (obstacle.userData.type === 'faceBlock' && obstacle.userData.blinkFace) {
@@ -1191,9 +1630,34 @@
             // 移动积分
             for (let i = collectibles.length - 1; i >= 0; i--) {
                 collectibles[i].position.z += config.speed;
-                collectibles[i].rotation.z += 0.015;
+                const fadeStartZ = collectibles[i].userData.fadeStartZ ?? -66;
+                const fadeEndZ = collectibles[i].userData.fadeEndZ ?? -26;
+                const appearProgress = Math.max(0, Math.min(1, (collectibles[i].position.z - fadeStartZ) / (fadeEndZ - fadeStartZ)));
+                collectibles[i].rotation.y += 0.015;
                 const pulse = 0.92 + Math.sin(performance.now() * 0.006 + i) * 0.1;
-                collectibles[i].scale.set(pulse * 1.2, pulse * 1.2, pulse * 1.2);
+                const baseScale = collectibles[i].userData.baseScale ?? 1.2;
+                const fadeScale = 0.6 + appearProgress * 0.4;
+                collectibles[i].scale.set(pulse * baseScale * fadeScale, pulse * baseScale * fadeScale, pulse * baseScale * fadeScale);
+                const sparkles = collectibles[i].userData.sparkles || [];
+                const t = performance.now() * 0.001;
+                sparkles.forEach((sparkle, idx) => {
+                    const angle = t * sparkle.userData.speed + sparkle.userData.phase;
+                    sparkle.position.x = Math.cos(angle) * sparkle.userData.radius;
+                    sparkle.position.y = Math.sin(angle * 1.2) * 0.05 + sparkle.userData.heightOffset;
+                    sparkle.position.z = Math.sin(angle) * sparkle.userData.radius * 0.15;
+                    const twinkle = 0.26 + (0.18 * Math.sin(t * 5 + idx));
+                    sparkle.material.opacity = twinkle * appearProgress;
+                    const sizePulse = 0.95 + 0.15 * Math.sin(t * 3.4 + idx);
+                    sparkle.scale.setScalar(sparkle.userData.size * sizePulse);
+                });
+
+                collectibles[i].traverse((node) => {
+                    if (node.material && typeof node.material.opacity === 'number') {
+                        if (!(collectibles[i].userData.sparkles || []).includes(node)) {
+                            node.material.opacity = 0.05 + appearProgress * 0.93;
+                        }
+                    }
+                });
                 if (collectibles[i].position.z > 10) {
                     scene.remove(collectibles[i]);
                     collectibles.splice(i, 1);
@@ -1624,10 +2088,7 @@
                 handleMovement();
                 updateRoad();
                 checkCollisions();
-
-                if (ball.userData.ring) {
-                    ball.userData.ring.rotation.z += 0.08;
-                }
+                updateBallRollAndTrail(dt, currentTime * 0.001);
 
                 // 恢复原始速度
                 config.speed = originalSpeed;
@@ -1740,6 +2201,7 @@
             if (camera && renderer) {
                 camera.aspect = window.innerWidth / window.innerHeight;
                 camera.updateProjectionMatrix();
+                renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.55 : 2));
                 renderer.setSize(window.innerWidth, window.innerHeight);
             }
         });
