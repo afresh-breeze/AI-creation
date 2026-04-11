@@ -2298,31 +2298,94 @@
 
         // 触摸控制
         let touchStartX = 0;
-        let touchCurrentX = 0;
+        let touchEndX = 0;
+        let touchLastX = 0;
 
         document.getElementById('touch-area').addEventListener('touchstart', function (e) {
             touchStartX = e.touches[0].clientX;
-            touchCurrentX = touchStartX;
+            touchLastX = touchStartX;
         });
 
         document.getElementById('touch-area').addEventListener('touchmove', function (e) {
-            e.preventDefault();
-            touchCurrentX = e.touches[0].clientX;
-            const deltaX = (touchCurrentX - touchStartX) * 0.01;
-            ball.position.x += deltaX;
-            touchStartX = touchCurrentX;
+            e.preventDefault(); // 防止页面滚动
+            touchEndX = e.touches[0].clientX;
 
-            // 边界限制
-            const halfRoad = config.roadWidth / 2 - 0.5;
-            ball.position.x = Math.max(-halfRoad, Math.min(halfRoad, ball.position.x));
+            if (isMobile && game.gameStarted && !game.gameOver && !game.paused && ball) {
+                const deltaX = touchEndX - touchLastX;
+                touchLastX = touchEndX;
+                const movementScale = (config.roadWidth / window.innerWidth) * 1.15;
+                ball.position.x += deltaX * movementScale;
+
+                const roadHalfWidth = config.roadWidth / 2;
+                const minX = -roadHalfWidth + 0.5;
+                const maxX = roadHalfWidth - 0.5;
+                ball.position.x = Math.max(minX, Math.min(maxX, ball.position.x));
+            } else if (!game.paused) {
+                // 计算滑动距离
+                const deltaX = touchEndX - touchStartX;
+
+                // 根据滑动距离模拟按键
+                if (deltaX > 20) {
+                    // 向右滑动
+                    keys['d'] = true;
+                    keys['arrowright'] = true;
+                } else if (deltaX < -20) {
+                    // 向左滑动
+                    keys['a'] = true;
+                    keys['arrowleft'] = true;
+                }
+            }
+        });
+
+        document.getElementById('touch-area').addEventListener('touchend', function (e) {
+            // 重置按键状态
+            keys['a'] = false;
+            keys['d'] = false;
+            keys['arrowleft'] = false;
+            keys['arrowright'] = false;
         });
 
         // 点击屏幕上方暂停游戏
-        document.addEventListener('touchstart', function (e) {
-            if (e.target.id !== 'touch-area' && game.gameStarted && !game.gameOver) {
-                pauseGame();
-            }
-        });
+        if (isMobile) {
+            document.addEventListener('click', function (e) {
+                // 检查点击的是否是按钮元素或弹窗元素，如果是则不触发暂停
+                if (e.target.tagName === 'BUTTON' ||
+                    e.target.closest('.btn-primary') ||
+                    e.target.closest('.btn-secondary') ||
+                    e.target.closest('.modal') ||
+                    e.target.closest('#pause-menu') ||
+                    e.target.closest('#game-over') ||
+                    e.target.closest('#level-complete')) {
+                    return;
+                }
+
+                // 检查游戏是否已经暂停，如果是则不触发暂停
+                if (game.paused) {
+                    return;
+                }
+
+                // 检查点击位置是否在触摸控制区域外
+                const touchArea = document.getElementById('touch-area');
+                if (touchArea) {
+                    const touchAreaRect = touchArea.getBoundingClientRect();
+                    if (e.clientY < touchAreaRect.top && game.gameStarted && !game.gameOver) {
+                        // 点击在触摸控制区域上方，触发暂停
+                        pauseGame();
+                    }
+                }
+            });
+        } else {
+            document.addEventListener('touchstart', function (e) {
+                // 检查游戏是否已经暂停，如果是则不触发暂停
+                if (game.paused) {
+                    return;
+                }
+
+                if (e.target.id !== 'touch-area' && game.gameStarted && !game.gameOver) {
+                    pauseGame();
+                }
+            });
+        }
 
         // 窗口大小变化
         window.addEventListener('resize', function () {
