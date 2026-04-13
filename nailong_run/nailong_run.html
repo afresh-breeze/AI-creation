@@ -459,7 +459,8 @@
                 alpha: true,
                 precision: 'mediump' // 移动端建议使用 mediump 提高兼容性
             });
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.55 : 2));
+            // 移动端进一步降低像素比，提升流畅度
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.1 : 2));
             renderer.setSize(window.innerWidth, window.innerHeight);
             // 启用抗锯齿和其他渲染选项
             renderer.setClearColor(0x1a1a2e, 1);
@@ -487,7 +488,8 @@
 
             // 预热漩涡纹理池，避免运行中频繁生成卡顿
             if (vortexTexturePool.length === 0) {
-                const poolSize = isMobile ? 2 : 4;
+                // 移动端多预热，减少运行时卡顿
+                const poolSize = isMobile ? 6 : 4;
                 for (let i = 0; i < poolSize; i++) {
                     vortexTexturePool.push(createVortexTexture());
                 }
@@ -660,6 +662,11 @@
         }
 
         function createBallTrailSystem() {
+            // 防止重复挂载导致状态异常
+            if (ballTrailSystem && ballTrailSystem.parent) {
+                ballTrailSystem.parent.remove(ballTrailSystem);
+            }
+
             // 地面光路贴图：中心亮、两侧羽化、尾部渐隐（淡色）
             const texCanvas = document.createElement('canvas');
             texCanvas.width = 128;
@@ -698,18 +705,34 @@
                 side: THREE.DoubleSide
             });
             const mesh = new THREE.Mesh(geo, mat);
-            // 不旋转网格，直接将顶点写在世界XZ平面（y固定贴地）
             mesh.position.set(0, 0, 0);
             mesh.frustumCulled = false;
             ballTrailSystem.add(mesh);
             ballTrailSprites.push(mesh);
 
-
+            // 拖尾节点全部初始化为当前小球位置，避免断裂
+            let px = 0, pz = 0;
+            if (ball && typeof ball.position !== 'undefined') {
+                px = ball.position.x;
+                pz = ball.position.z;
+            }
             for (let j = 0; j <= segments; j++) {
-                ballTrailNodes.push(new THREE.Vector3(0, 0.015, -1000));
+                ballTrailNodes.push(new THREE.Vector3(px, 0.015, pz - j * 0.12));
             }
             scene.add(ballTrailSystem);
             ballTrailDirection = new THREE.Vector3(0, 0, 1);
+        }
+
+        function ensureBallTrailSystem() {
+            if (!scene || !ball) return;
+            const mesh = ballTrailSprites[0];
+            const missingSystem = !ballTrailSystem || ballTrailSystem.parent !== scene;
+            const missingMesh = !mesh || !mesh.geometry || !mesh.geometry.attributes || !mesh.geometry.attributes.position;
+            const nodeMismatch = ballTrailNodes.length !== ballTrailMaxNodes;
+
+            if (missingSystem || missingMesh || nodeMismatch) {
+                createBallTrailSystem();
+            }
         }
 
         function updateBallRollAndTrail(dt, timeSec) {
@@ -1511,25 +1534,25 @@
 
                 // 根据奶龙的实际大小设置碰撞体
                 if (isWide) {
-                    // 宽障碍物（大奶龙）- 只检测脚的部分
+                    // 宽障碍物（大奶龙）- 只检测脚的部分，进一步缩小判定盒
                     obstacle.userData.collider = {
                         type: 'naiLongLegs',
-                        halfX: 0.15, // 脚的宽度（进一步减小）
-                        halfY: 0.1, // 脚的高度（进一步减小）
-                        halfZ: 0.15, // 脚的深度（进一步减小）
-                        footY: 0.4 // 脚的Y轴位置（相对于奶龙中心，调整）
+                        halfX: 0.12, // 脚的宽度
+                        halfY: 0.08, // 脚的高度
+                        halfZ: 0.12, // 脚的深度
+                        footY: 0.4 // 脚的Y轴位置
                     };
                 } else {
-                    // 普通障碍物（小奶龙）- 检测整个身体包括手的部分
+                    // 普通障碍物（小奶龙）- 检测整个身体包括手的部分，进一步缩小判定盒
                     obstacle.userData.collider = {
                         type: 'naiLongFull',
-                        bodyHalfX: 0.2, // 身体宽度
-                        bodyHalfY: 0.3, // 身体高度
-                        bodyHalfZ: 0.2, // 身体深度
-                        armHalfX: 0.1, // 手臂宽度
-                        armHalfY: 0.1, // 手臂高度
-                        armHalfZ: 0.1, // 手臂深度
-                        armX: 0.3, // 手臂X轴位置
+                        bodyHalfX: 0.17, // 身体宽度
+                        bodyHalfY: 0.25, // 身体高度
+                        bodyHalfZ: 0.17, // 身体深度
+                        armHalfX: 0.08, // 手臂宽度
+                        armHalfY: 0.08, // 手臂高度
+                        armHalfZ: 0.08, // 手臂深度
+                        armX: 0.27, // 手臂X轴位置
                         armY: 0.5, // 手臂Y轴位置
                         armZ: 0.1  // 手臂Z轴位置
                     };
@@ -1683,8 +1706,9 @@
 
             ball.position.x += moveX;
 
-            // 边界限制
-            const halfRoad = config.roadWidth / 2 - 0.5;
+            // 边界限制，防止小球半个卡边
+            const ballRadius = ball.userData && ball.userData.radius ? ball.userData.radius : 0.5;
+            const halfRoad = config.roadWidth / 2 - ballRadius;
             ball.position.x = Math.max(-halfRoad, Math.min(halfRoad, ball.position.x));
         }
 
@@ -2209,13 +2233,29 @@
             if (game.gameOver || !game.gameStarted) return;
             game.paused = true;
             document.getElementById('pause-menu').style.display = 'block';
+            // 暂停时停止动画循环，防止恢复后重复循环导致状态异常
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
         }
 
         // 继续游戏
         function resumeGame() {
             game.paused = false;
             document.getElementById('pause-menu').style.display = 'none';
-            animate(performance.now());
+            ensureBallTrailSystem();
+            if (ball && ballTrailNodes.length > 0) {
+                for (let j = 0; j < ballTrailNodes.length; j++) {
+                    ballTrailNodes[j].set(ball.position.x, 0.015, ball.position.z - j * 0.12);
+                }
+                ballTrailDirection = new THREE.Vector3(0, 0, 1);
+            }
+            // 只在没有动画循环时恢复，避免重复requestAnimationFrame链
+            lastTime = performance.now();
+            if (!animationId) {
+                animate(lastTime);
+            }
         }
 
         // 结束游戏
@@ -2247,6 +2287,7 @@
             const dt = Math.min(deltaTime, 0.1);
 
             if (game.gameStarted && !game.gameOver && !game.paused && ball) {
+                ensureBallTrailSystem();
                 // 使用固定时间步长更新
                 const fixedSpeed = config.speed * (dt / config.fixedTimeStep);
                 const fixedMoveSpeed = config.moveSpeed * (dt / config.fixedTimeStep);
@@ -2287,7 +2328,11 @@
             if (e.key === ' ' || e.key === 'Spacebar') {
                 e.preventDefault();
                 if (game.gameStarted && !game.gameOver) {
-                    pauseGame();
+                    if (game.paused) {
+                        resumeGame();
+                    } else {
+                        pauseGame();
+                    }
                 }
             }
         });
@@ -2316,9 +2361,11 @@
                 const movementScale = (config.roadWidth / window.innerWidth) * 1.15;
                 ball.position.x += deltaX * movementScale;
 
+                // 边界限制，防止小球半个卡边
+                const ballRadius = ball.userData && ball.userData.radius ? ball.userData.radius : 0.5;
                 const roadHalfWidth = config.roadWidth / 2;
-                const minX = -roadHalfWidth + 0.5;
-                const maxX = roadHalfWidth - 0.5;
+                const minX = -roadHalfWidth + ballRadius;
+                const maxX = roadHalfWidth - ballRadius;
                 ball.position.x = Math.max(minX, Math.min(maxX, ball.position.x));
             } else if (!game.paused) {
                 // 计算滑动距离
