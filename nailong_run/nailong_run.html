@@ -539,7 +539,7 @@
                                             mat.normalMap = null;
                                         }
                                         if (typeof mat.aoMapIntensity === 'number') {
-                                            mat.aoMapIntensity = Math.min(0.4, mat.aoMapIntensity);
+                                            mat.aoMapIntensity = Math.min(0.22, mat.aoMapIntensity);
                                         }
                                         if (mat.polygonOffset !== undefined) {
                                             mat.polygonOffset = true;
@@ -558,7 +558,7 @@
                                             ? 1
                                             : Math.min(8, maxAniso);
                                         mat.map.anisotropy = Math.max(1, targetAniso);
-                                        mat.map.minFilter = isMobile ? THREE.LinearFilter : THREE.LinearMipmapLinearFilter;
+                                        mat.map.minFilter = THREE.LinearMipmapLinearFilter;
                                         mat.map.magFilter = THREE.LinearFilter;
                                         mat.map.needsUpdate = true;
                                     }
@@ -619,21 +619,21 @@
             // 启用抗锯齿和其他渲染选项
             renderer.setClearColor(0x1a1a2e, 1);
             renderer.toneMapping = THREE.LinearToneMapping;
-            renderer.toneMappingExposure = isMobile ? 0.93 : 1.0;
-            // 移动端也使用线性输出，避免整体偏亮影响风格统一
-            renderer.outputEncoding = THREE.LinearEncoding;
+            renderer.toneMappingExposure = isMobile ? 0.84 : 1.0;
+            // 移动端恢复正确色彩输出避免发黑；桌面端保持原有观感
+            renderer.outputEncoding = isMobile ? THREE.sRGBEncoding : THREE.LinearEncoding;
             document.body.appendChild(renderer.domElement);
 
             // 添加灯光
-            const ambientLight = new THREE.AmbientLight(0xffffff, isMobile ? 0.74 : 0.8);
+            const ambientLight = new THREE.AmbientLight(0xffffff, isMobile ? 0.62 : 0.8);
             scene.add(ambientLight);
 
-            const directionalLight = new THREE.DirectionalLight(0xffffff, isMobile ? 0.96 : 1.2);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, isMobile ? 0.86 : 1.2);
             directionalLight.position.set(0, 10, -5);
             scene.add(directionalLight);
 
             // 添加额外的方向光，从侧面照射，减少阴影
-            const sideLight = new THREE.DirectionalLight(0xffffff, isMobile ? 0.42 : 0.6);
+            const sideLight = new THREE.DirectionalLight(0xffffff, isMobile ? 0.32 : 0.6);
             sideLight.position.set(10, 5, 0);
             scene.add(sideLight);
 
