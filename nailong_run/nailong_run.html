@@ -191,6 +191,42 @@
             padding: 0 20px;
         }
 
+        #model-loading {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 14px;
+            background: rgba(8, 12, 22, 0.78);
+            backdrop-filter: blur(2px);
+            z-index: 2100;
+            color: #e8f8ff;
+            font-size: 15px;
+            letter-spacing: 0.3px;
+        }
+
+        #model-loading .spinner {
+            width: 44px;
+            height: 44px;
+            border: 8px solid rgba(110, 210, 255, 0.25); /* 加粗 */
+            border-top-color: #6ed2ff;
+            border-radius: 50%;
+            animation: modelSpin 0.85s linear infinite;
+        }
+
+        #model-loading .loading-tip {
+            opacity: 0.92;
+            text-shadow: 0 0 8px rgba(110, 210, 255, 0.25);
+        }
+
+        @keyframes modelSpin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
         @keyframes scoreTwinkle {
             0% {
                 transform: scale(1);
@@ -211,6 +247,11 @@
 </head>
 
 <body>
+    <div id="model-loading">
+        <div class="spinner"></div>
+        <div id="model-loading-text" class="loading-tip">正在加载模型 0%</div>
+    </div>
+
     <div id="score" class="ui">
         分数: 0
     </div>
@@ -335,6 +376,23 @@
         let vortexTexturePool = [];
         let naiLongModel = null;
 
+        function showModelLoading(text = '正在加载模型 0%') {
+            const loadingEl = document.getElementById('model-loading');
+            const textEl = document.getElementById('model-loading-text');
+            if (textEl) textEl.textContent = text;
+            if (loadingEl) loadingEl.style.display = 'flex';
+        }
+
+        function updateModelLoading(progressText) {
+            const textEl = document.getElementById('model-loading-text');
+            if (textEl) textEl.textContent = progressText;
+        }
+
+        function hideModelLoading() {
+            const loadingEl = document.getElementById('model-loading');
+            if (loadingEl) loadingEl.style.display = 'none';
+        }
+
         // 初始化游戏
         function initGame() {
             // 停止旧的动画循环
@@ -400,9 +458,10 @@
             // 加载奶龙模型
             const loader = new THREE.GLTFLoader();
             naiLongModel = null;
+            showModelLoading('正在加载模型 0%');
 
-            // 使用相对路径加载模型
-            const modelPath = './nailong.glb';
+            // 使用 CDN 压缩模型路径
+            const modelPath = 'https://cdn.jsdelivr.net/gh/afresh-breeze/AI-creation@main/nailong_run/nailong_packed.glb';
 
             loader.load(
                 modelPath,
@@ -429,15 +488,24 @@
                         }
                     });
                     console.log('模型加载成功');
+                    hideModelLoading();
 
                     // 模型加载完成后再创建道路和障碍物
                     createRoad();
                 },
                 function (xhr) {
-                    console.log((xhr.loaded / xhr.total * 100) + '% 加载完成');
+                    const total = xhr.total || 0;
+                    if (total > 0) {
+                        const percent = Math.min(100, Math.round((xhr.loaded / total) * 100));
+                        updateModelLoading(`正在加载模型 ${percent}%`);
+                        console.log(percent + '% 加载完成');
+                    } else {
+                        updateModelLoading('正在加载模型...');
+                    }
                 },
                 function (error) {
                     console.error('模型加载失败的原因:', error);
+                    updateModelLoading('模型加载失败，请刷新重试');
                     // 在手机上弹窗提示具体错误，方便调试
                     // alert('错误详情: ' + JSON.stringify(error));
                 }
