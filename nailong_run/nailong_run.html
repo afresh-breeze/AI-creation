@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D小球跑酷游戏</title>
+    <title>奶龙跑酷</title>
     <style>
         * {
             box-sizing: border-box;
@@ -300,25 +300,25 @@
     </div>
 
     <div id="start-screen">
-        <h2>3D小球跑酷游戏</h2>
+        <h2>奶龙跑酷</h2>
         <div class="rules">
             <h3>游戏规则：</h3>
             <div id="rules-desktop">
                 <p>1. 使用 A/← 键向左移动</p>
                 <p>2. 使用 D/→ 键向右移动</p>
-                <p>3. 按空格键暂停游戏</p>
-                <p>4. 躲避障碍物</p>
+                <p>3. 按 P 键暂停游戏</p>
+                <p>4. 躲避奶龙</p>
                 <p>5. 收集星光积分</p>
                 <p>6. 达到目标分数升级关卡</p>
-                <p>7. 撞到障碍物游戏结束</p>
+                <p>7. 撞到奶龙游戏结束</p>
             </div>
             <div id="rules-mobile" style="display: none;">
                 <p>1. 在屏幕下方左右滑动控制小球</p>
                 <p>2. 点击屏幕上方任意位置暂停游戏</p>
-                <p>3. 躲避障碍物</p>
+                <p>3. 躲避奶龙</p>
                 <p>4. 收集星光积分</p>
                 <p>5. 达到目标分数升级关卡</p>
-                <p>6. 撞到障碍物游戏结束</p>
+                <p>6. 撞到奶龙游戏结束</p>
             </div>
         </div>
         <button class="btn-primary" onclick="startGame()">开始游戏</button>
@@ -510,7 +510,6 @@
                         naiLongModel.position.y = -0.5;
                         naiLongModel.traverse(function (child) {
                             if (child.isMesh) {
-                                // 移动端优先稳定：弱化阴影伪影来源
                                 child.castShadow = !isMobile;
                                 child.receiveShadow = false;
 
@@ -521,50 +520,37 @@
                                 if (child.material) {
                                     const materials = Array.isArray(child.material) ? child.material : [child.material];
                                     const tunedMaterials = materials.map((mat) => {
-                                        // 移动端兜底：改为更稳定的 Lambert，避免 PBR 在部分设备上发黑
-                                        if (isMobile) {
-                                            const lambert = new THREE.MeshLambertMaterial({
-                                                color: mat.color ? mat.color.clone() : new THREE.Color(0xffffff),
-                                                map: mat.map || null,
-                                                transparent: !!mat.transparent,
-                                                opacity: typeof mat.opacity === 'number' ? mat.opacity : 1,
-                                                alphaTest: typeof mat.alphaTest === 'number' ? mat.alphaTest : 0,
-                                                side: THREE.FrontSide,
-                                                depthTest: true,
-                                                depthWrite: true,
-                                                dithering: true,
-                                                vertexColors: !!mat.vertexColors,
-                                                skinning: !!child.isSkinnedMesh
-                                            });
+                                        if (!mat) return mat;
+                                        // 原色基础上轻微提升饱和度和亮度
+                                        let baseColor = mat.color ? mat.color.clone() : new THREE.Color(0xffffff);
+                                        baseColor.offsetHSL(0, 0.08, 0.08); // 饱和度+0.08，亮度+0.08
+                                        const phong = new THREE.MeshPhongMaterial({
+                                            color: baseColor,
+                                            map: mat.map || null,
+                                            transparent: !!mat.transparent,
+                                            opacity: typeof mat.opacity === 'number' ? mat.opacity : 1,
+                                            alphaTest: typeof mat.alphaTest === 'number' ? mat.alphaTest : 0,
+                                            side: mat.side !== undefined ? mat.side : THREE.DoubleSide,
+                                            depthTest: true,
+                                            depthWrite: true,
+                                            dithering: true,
+                                            vertexColors: !!mat.vertexColors,
+                                            skinning: !!child.isSkinnedMesh
+                                        });
 
-                                            if (lambert.map) {
-                                                lambert.map.encoding = THREE.sRGBEncoding;
-                                                lambert.map.anisotropy = 1;
-                                                lambert.map.minFilter = THREE.LinearMipmapLinearFilter;
-                                                lambert.map.magFilter = THREE.LinearFilter;
-                                                lambert.map.needsUpdate = true;
-                                            }
-                                            lambert.needsUpdate = true;
-                                            return lambert;
-                                        }
-
-                                        // 桌面端保持原有 PBR 风格，仅做轻量稳态设置
-                                        mat.wireframe = false;
-                                        mat.side = THREE.FrontSide;
-                                        if (mat.map) {
+                                        if (phong.map) {
+                                            phong.map.encoding = THREE.sRGBEncoding;
                                             const maxAniso = renderer && renderer.capabilities
                                                 ? renderer.capabilities.getMaxAnisotropy()
                                                 : 1;
-                                            mat.map.anisotropy = Math.max(1, Math.min(8, maxAniso));
-                                            mat.map.minFilter = THREE.LinearMipmapLinearFilter;
-                                            mat.map.magFilter = THREE.LinearFilter;
-                                            mat.map.needsUpdate = true;
+                                            const anisoCap = isMobile ? mobileTextureAnisotropyCap : 8;
+                                            phong.map.anisotropy = Math.max(1, Math.min(anisoCap, maxAniso));
+                                            phong.map.needsUpdate = true;
                                         }
-                                        if (mat.edgeThreshold !== undefined) {
-                                            mat.edgeThreshold = 0;
-                                        }
-                                        mat.needsUpdate = true;
-                                        return mat;
+                                        phong.shininess = 12;
+                                        phong.specular.setHex(0x222222);
+                                        phong.needsUpdate = true;
+                                        return phong;
                                     });
 
                                     child.material = Array.isArray(child.material) ? tunedMaterials : tunedMaterials[0];
@@ -611,8 +597,7 @@
             renderer = new THREE.WebGLRenderer({
                 antialias: true,
                 powerPreference: 'high-performance',
-                alpha: true,
-                precision: 'mediump' // 移动端建议使用 mediump 提高兼容性
+                alpha: true
             });
             // 移动端进一步降低像素比，提升流畅度
             const mobilePixelRatioCap = (window.devicePixelRatio || 1) >= 2 ? 1.25 : 1.15;
@@ -621,28 +606,22 @@
             // 启用抗锯齿和其他渲染选项
             renderer.setClearColor(0x1a1a2e, 1);
             renderer.toneMapping = THREE.LinearToneMapping;
-            renderer.toneMappingExposure = isMobile ? 0.92 : 1.0;
-            // 移动端恢复正确色彩输出避免发黑；桌面端保持原有观感
-            renderer.outputEncoding = isMobile ? THREE.sRGBEncoding : THREE.LinearEncoding;
+            renderer.toneMappingExposure = isMobile ? 0.88 : 1.0;
+            renderer.outputEncoding = THREE.sRGBEncoding;
             document.body.appendChild(renderer.domElement);
 
             // 添加灯光
-            const ambientLight = new THREE.AmbientLight(0xffffff, isMobile ? 0.9 : 0.8);
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.36);
             scene.add(ambientLight);
 
-            const directionalLight = new THREE.DirectionalLight(0xffffff, isMobile ? 0.78 : 1.2);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.75);
             directionalLight.position.set(0, 10, -5);
             scene.add(directionalLight);
 
-            // 添加额外的方向光，从侧面照射，减少阴影
-            const sideLight = new THREE.DirectionalLight(0xffffff, isMobile ? 0.36 : 0.6);
+            // 侧光适中
+            const sideLight = new THREE.DirectionalLight(0xffffff, 0.22);
             sideLight.position.set(10, 5, 0);
             scene.add(sideLight);
-
-            if (isMobile) {
-                const hemiLight = new THREE.HemisphereLight(0xffffff, 0x2a3558, 0.42);
-                scene.add(hemiLight);
-            }
 
             // 创建小球
             createBall();
@@ -777,34 +756,32 @@
                 new THREE.MeshStandardMaterial({
                     map: surfaceMap,
                     color: 0x6fd3ff,
-                    roughness: 0.24,
-                    metalness: 0.52,
+                    roughness: 0.38,
+                    metalness: 0.18,
                     emissive: 0x1a3f5a,
-                    emissiveIntensity: 0.3
+                    emissiveIntensity: 0.18
                 })
             );
-
             const glowShell = new THREE.Mesh(
                 new THREE.SphereGeometry(0.56, 24, 24),
                 new THREE.MeshStandardMaterial({
                     color: 0xb5ecff,
                     transparent: true,
-                    opacity: 0.22,
-                    roughness: 0.1,
-                    metalness: 0.1,
+                    opacity: 0.18,
+                    roughness: 0.18,
+                    metalness: 0.06,
                     emissive: 0x4fd2ff,
-                    emissiveIntensity: 0.45
+                    emissiveIntensity: 0.22
                 })
             );
-
             const ring = new THREE.Mesh(
                 new THREE.TorusGeometry(0.44, 0.04, 12, 48),
                 new THREE.MeshStandardMaterial({
                     color: 0xffffff,
                     emissive: 0x7fe7ff,
-                    emissiveIntensity: 0.8,
-                    roughness: 0.2,
-                    metalness: 0.3
+                    emissiveIntensity: 0.38,
+                    roughness: 0.32,
+                    metalness: 0.12
                 })
             );
             ring.rotation.x = Math.PI / 2;
@@ -1055,12 +1032,12 @@
 
             return new THREE.MeshStandardMaterial({
                 map: texture,
-                color: 0xffffff,
-                roughness: 0.78,
-                metalness: 0.14,
+                color: 0xe6e6e6,
+                roughness: 0.92,
+                metalness: 0.04,
                 side: THREE.DoubleSide,
                 emissive: 0x141a26,
-                emissiveIntensity: 0.28
+                emissiveIntensity: 0.18
             });
         }
 
@@ -1567,7 +1544,7 @@
 
             // 第四关及以上，额外增加积分生成机会
             if (game.level >= 4 && Math.random() < 0.5) { // 50% 概率额外生成一个积分
-                // 选择积分的X位置（与之前不同的列）
+                // 选择积分的X位置（与第一个积分位置不同的列）
                 let x;
                 const usedColumns = new Set();
                 // 收集已使用的列
@@ -1767,7 +1744,7 @@
 
             const rayMaterial = new THREE.MeshStandardMaterial({
                 color: 0xffffff,
-                emissive: 0xfff4d7,
+                emissive:  0xfff4d7,
                 emissiveIntensity: 1.2,
                 roughness: 0.12,
                 metalness: 0.22,
