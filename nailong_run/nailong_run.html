@@ -391,9 +391,10 @@
         let roadMaterial = null;
         let vortexTexturePool = [];
         let naiLongModel = null;
-    let modelLoadingShownAt = 0;
-    const minLoadingVisibleMs = isMobile ? 520 : 260;
-    const mobileTextureAnisotropyCap = 2;
+        let naiLongModelTemplate = null;
+        let modelLoadingShownAt = 0;
+        const minLoadingVisibleMs = isMobile ? 520 : 260;
+        const mobileTextureAnisotropyCap = 2;
 
         function showModelLoading(text = '正在加载模型 0%') {
             const loadingEl = document.getElementById('model-loading');
@@ -486,115 +487,116 @@
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x1a1a2e);
 
-            // 加载奶龙模型
+            // 加载奶龙模型（命中缓存时不显示 loading）
             const loader = new THREE.GLTFLoader();
             naiLongModel = null;
-            showModelLoading('正在加载模型 0%');
 
             // 使用 CDN 压缩模型路径
             const modelPath = 'https://cdn.jsdelivr.net/gh/afresh-breeze/AI-creation@main/nailong_run/nailong_packed.glb';
 
-            loader.load(
-                modelPath,
-                function (gltf) {
-                    naiLongModel = gltf.scene;
-                    naiLongModel.scale.set(0.8, 0.8, 0.8);
-                    naiLongModel.position.y = -0.5;
-                    naiLongModel.traverse(function (child) {
-                        if (child.isMesh) {
-                            // 移动端优先稳定：弱化阴影伪影来源
-                            child.castShadow = !isMobile;
-                            child.receiveShadow = false;
+            if (naiLongModelTemplate) {
+                naiLongModel = naiLongModelTemplate.clone(true);
+                const loadingEl = document.getElementById('model-loading');
+                if (loadingEl) loadingEl.style.display = 'none';
+                createRoad();
+            } else {
+                showModelLoading('正在加载模型 0%');
 
-                            if (child.geometry && isMobile) {
-                                // 压缩模型在移动端容易出现法线接缝，强制重建并归一化
-                                child.geometry.computeVertexNormals();
-                                if (typeof child.geometry.normalizeNormals === 'function') {
-                                    child.geometry.normalizeNormals();
+                loader.load(
+                    modelPath,
+                    function (gltf) {
+                        naiLongModel = gltf.scene;
+                        naiLongModel.scale.set(0.8, 0.8, 0.8);
+                        naiLongModel.position.y = -0.5;
+                        naiLongModel.traverse(function (child) {
+                            if (child.isMesh) {
+                                // 移动端优先稳定：弱化阴影伪影来源
+                                child.castShadow = !isMobile;
+                                child.receiveShadow = false;
+
+                                if (child.geometry && !child.geometry.attributes.normal) {
+                                    child.geometry.computeVertexNormals();
                                 }
-                            } else if (child.geometry && !child.geometry.attributes.normal) {
-                                child.geometry.computeVertexNormals();
+
+                                if (child.material) {
+                                    const materials = Array.isArray(child.material) ? child.material : [child.material];
+                                    const tunedMaterials = materials.map((mat) => {
+                                        // 移动端兜底：改为更稳定的 Lambert，避免 PBR 在部分设备上发黑
+                                        if (isMobile) {
+                                            const lambert = new THREE.MeshLambertMaterial({
+                                                color: mat.color ? mat.color.clone() : new THREE.Color(0xffffff),
+                                                map: mat.map || null,
+                                                transparent: !!mat.transparent,
+                                                opacity: typeof mat.opacity === 'number' ? mat.opacity : 1,
+                                                alphaTest: typeof mat.alphaTest === 'number' ? mat.alphaTest : 0,
+                                                side: THREE.FrontSide,
+                                                depthTest: true,
+                                                depthWrite: true,
+                                                dithering: true,
+                                                vertexColors: !!mat.vertexColors,
+                                                skinning: !!child.isSkinnedMesh
+                                            });
+
+                                            if (lambert.map) {
+                                                lambert.map.encoding = THREE.sRGBEncoding;
+                                                lambert.map.anisotropy = 1;
+                                                lambert.map.minFilter = THREE.LinearMipmapLinearFilter;
+                                                lambert.map.magFilter = THREE.LinearFilter;
+                                                lambert.map.needsUpdate = true;
+                                            }
+                                            lambert.needsUpdate = true;
+                                            return lambert;
+                                        }
+
+                                        // 桌面端保持原有 PBR 风格，仅做轻量稳态设置
+                                        mat.wireframe = false;
+                                        mat.side = THREE.FrontSide;
+                                        if (mat.map) {
+                                            const maxAniso = renderer && renderer.capabilities
+                                                ? renderer.capabilities.getMaxAnisotropy()
+                                                : 1;
+                                            mat.map.anisotropy = Math.max(1, Math.min(8, maxAniso));
+                                            mat.map.minFilter = THREE.LinearMipmapLinearFilter;
+                                            mat.map.magFilter = THREE.LinearFilter;
+                                            mat.map.needsUpdate = true;
+                                        }
+                                        if (mat.edgeThreshold !== undefined) {
+                                            mat.edgeThreshold = 0;
+                                        }
+                                        mat.needsUpdate = true;
+                                        return mat;
+                                    });
+
+                                    child.material = Array.isArray(child.material) ? tunedMaterials : tunedMaterials[0];
+                                }
                             }
+                        });
 
-                            if (child.material) {
-                                const materials = Array.isArray(child.material) ? child.material : [child.material];
-                                materials.forEach((mat) => {
-                                    // 禁用线框，统一正面渲染，减少边缘黑缝
-                                    mat.wireframe = false;
-                                    mat.side = THREE.FrontSide;
+                        naiLongModelTemplate = naiLongModel.clone(true);
+                        console.log('模型加载成功');
+                        hideModelLoading();
 
-                                    // 移动端压缩模型常见黑线：降低高光硬边与法线过强
-                                    if (isMobile) {
-                                        if (typeof mat.roughness === 'number') {
-                                            mat.roughness = Math.max(0.66, mat.roughness);
-                                        }
-                                        if (typeof mat.metalness === 'number') {
-                                            mat.metalness = Math.min(0.2, mat.metalness);
-                                        }
-                                        if (mat.normalScale && typeof mat.normalScale.set === 'function') {
-                                            mat.normalScale.set(0.55, 0.55);
-                                        }
-                                        if (mat.normalMap) {
-                                            // 移动端上法线贴图常放大接缝黑线
-                                            mat.normalMap = null;
-                                        }
-                                        if (typeof mat.aoMapIntensity === 'number') {
-                                            mat.aoMapIntensity = Math.min(0.22, mat.aoMapIntensity);
-                                        }
-                                        if (mat.polygonOffset !== undefined) {
-                                            mat.polygonOffset = true;
-                                            mat.polygonOffsetFactor = 0.8;
-                                            mat.polygonOffsetUnits = 1;
-                                        }
-                                        mat.dithering = true;
-                                    }
-
-                                    if (mat.map) {
-                                        // 轻量清晰度提升：低成本各向异性，避免斜视角糊边/暗线
-                                        const maxAniso = renderer && renderer.capabilities
-                                            ? renderer.capabilities.getMaxAnisotropy()
-                                            : 1;
-                                        const targetAniso = isMobile
-                                            ? 1
-                                            : Math.min(8, maxAniso);
-                                        mat.map.anisotropy = Math.max(1, targetAniso);
-                                        mat.map.minFilter = THREE.LinearMipmapLinearFilter;
-                                        mat.map.magFilter = THREE.LinearFilter;
-                                        mat.map.needsUpdate = true;
-                                    }
-
-                                    // 禁用边缘高亮（若材质支持）
-                                    if (mat.edgeThreshold !== undefined) {
-                                        mat.edgeThreshold = 0;
-                                    }
-                                    mat.needsUpdate = true;
-                                });
-                            }
+                        // 模型加载完成后再创建道路和障碍物
+                        createRoad();
+                    },
+                    function (xhr) {
+                        const total = xhr.total || 0;
+                        if (total > 0) {
+                            const percent = Math.min(100, Math.round((xhr.loaded / total) * 100));
+                            updateModelLoading(`正在加载模型 ${percent}%`);
+                            console.log(percent + '% 加载完成');
+                        } else {
+                            updateModelLoading('正在加载模型...');
                         }
-                    });
-                    console.log('模型加载成功');
-                    hideModelLoading();
-
-                    // 模型加载完成后再创建道路和障碍物
-                    createRoad();
-                },
-                function (xhr) {
-                    const total = xhr.total || 0;
-                    if (total > 0) {
-                        const percent = Math.min(100, Math.round((xhr.loaded / total) * 100));
-                        updateModelLoading(`正在加载模型 ${percent}%`);
-                        console.log(percent + '% 加载完成');
-                    } else {
-                        updateModelLoading('正在加载模型...');
+                    },
+                    function (error) {
+                        console.error('模型加载失败的原因:', error);
+                        updateModelLoading('模型加载失败，请刷新重试');
+                        // 在手机上弹窗提示具体错误，方便调试
+                        // alert('错误详情: ' + JSON.stringify(error));
                     }
-                },
-                function (error) {
-                    console.error('模型加载失败的原因:', error);
-                    updateModelLoading('模型加载失败，请刷新重试');
-                    // 在手机上弹窗提示具体错误，方便调试
-                    // alert('错误详情: ' + JSON.stringify(error));
-                }
-            );
+                );
+            }
 
             // 添加背景星星效果
             addBackgroundStars();
@@ -619,23 +621,28 @@
             // 启用抗锯齿和其他渲染选项
             renderer.setClearColor(0x1a1a2e, 1);
             renderer.toneMapping = THREE.LinearToneMapping;
-            renderer.toneMappingExposure = isMobile ? 0.84 : 1.0;
+            renderer.toneMappingExposure = isMobile ? 0.92 : 1.0;
             // 移动端恢复正确色彩输出避免发黑；桌面端保持原有观感
             renderer.outputEncoding = isMobile ? THREE.sRGBEncoding : THREE.LinearEncoding;
             document.body.appendChild(renderer.domElement);
 
             // 添加灯光
-            const ambientLight = new THREE.AmbientLight(0xffffff, isMobile ? 0.62 : 0.8);
+            const ambientLight = new THREE.AmbientLight(0xffffff, isMobile ? 0.9 : 0.8);
             scene.add(ambientLight);
 
-            const directionalLight = new THREE.DirectionalLight(0xffffff, isMobile ? 0.86 : 1.2);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, isMobile ? 0.78 : 1.2);
             directionalLight.position.set(0, 10, -5);
             scene.add(directionalLight);
 
             // 添加额外的方向光，从侧面照射，减少阴影
-            const sideLight = new THREE.DirectionalLight(0xffffff, isMobile ? 0.32 : 0.6);
+            const sideLight = new THREE.DirectionalLight(0xffffff, isMobile ? 0.36 : 0.6);
             sideLight.position.set(10, 5, 0);
             scene.add(sideLight);
+
+            if (isMobile) {
+                const hemiLight = new THREE.HemisphereLight(0xffffff, 0x2a3558, 0.42);
+                scene.add(hemiLight);
+            }
 
             // 创建小球
             createBall();
