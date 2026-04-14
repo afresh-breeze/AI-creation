@@ -201,10 +201,23 @@
             gap: 14px;
             background: rgba(8, 12, 22, 0.78);
             backdrop-filter: blur(2px);
-            z-index: 2100;
+            -webkit-backdrop-filter: blur(2px);
+            z-index: 99999; /* 提高优先级，确保在所有界面之上 */
             color: #e8f8ff;
             font-size: 15px;
             letter-spacing: 0.3px;
+        }
+
+        @media screen and (max-width: 768px) {
+            #model-loading {
+                font-size: 15px;
+                gap: 12px;
+            }
+            #model-loading .spinner {
+                width: 38px;
+                height: 38px;
+                border-width: 7px;
+            }
         }
 
         #model-loading .spinner {
@@ -214,6 +227,9 @@
             border-top-color: #6ed2ff;
             border-radius: 50%;
             animation: modelSpin 0.85s linear infinite;
+            -webkit-animation: modelSpin 0.85s linear infinite;
+            transform: translateZ(0);
+            will-change: transform;
         }
 
         #model-loading .loading-tip {
@@ -375,12 +391,17 @@
         let roadMaterial = null;
         let vortexTexturePool = [];
         let naiLongModel = null;
+    let modelLoadingShownAt = 0;
+    const minLoadingVisibleMs = isMobile ? 520 : 260;
 
         function showModelLoading(text = '正在加载模型 0%') {
             const loadingEl = document.getElementById('model-loading');
             const textEl = document.getElementById('model-loading-text');
             if (textEl) textEl.textContent = text;
-            if (loadingEl) loadingEl.style.display = 'flex';
+            if (loadingEl) {
+                modelLoadingShownAt = performance.now();
+                loadingEl.style.display = 'flex';
+            }
         }
 
         function updateModelLoading(progressText) {
@@ -390,7 +411,16 @@
 
         function hideModelLoading() {
             const loadingEl = document.getElementById('model-loading');
-            if (loadingEl) loadingEl.style.display = 'none';
+            if (!loadingEl) return;
+            const elapsed = performance.now() - modelLoadingShownAt;
+            const remain = Math.max(0, minLoadingVisibleMs - elapsed);
+            if (remain > 0) {
+                setTimeout(() => {
+                    loadingEl.style.display = 'none';
+                }, remain);
+                return;
+            }
+            loadingEl.style.display = 'none';
         }
 
         // 初始化游戏
@@ -518,7 +548,7 @@
             const aspect = window.innerWidth / window.innerHeight;
             const fov = isMobile ? 85 : 75; // 手机端使用更大的视场角
             camera = new THREE.PerspectiveCamera(fov, aspect, 0.1, 1000);
-            camera.position.set(0, 5, 10);
+            camera.position.set(0, isMobile ? 6.4 : 5, isMobile ? 11.8 : 10);
 
             // 创建渲染器
             renderer = new THREE.WebGLRenderer({
@@ -1765,6 +1795,12 @@
         }
 
         // 处理移动
+        function getBallHorizontalLimit() {
+            const ballRadius = ball && ball.userData && ball.userData.radius ? ball.userData.radius : 0.5;
+            const visualSafetyMargin = isMobile ? 0.2 : 0.08;
+            return Math.max(0.5, (config.roadWidth / 2) - ballRadius - visualSafetyMargin);
+        }
+
         function handleMovement() {
             if (game.gameOver) return;
 
@@ -1775,9 +1811,8 @@
             ball.position.x += moveX;
 
             // 边界限制，防止小球半个卡边
-            const ballRadius = ball.userData && ball.userData.radius ? ball.userData.radius : 0.5;
-            const halfRoad = config.roadWidth / 2 - ballRadius;
-            ball.position.x = Math.max(-halfRoad, Math.min(halfRoad, ball.position.x));
+            const halfRoadSafe = getBallHorizontalLimit();
+            ball.position.x = Math.max(-halfRoadSafe, Math.min(halfRoadSafe, ball.position.x));
         }
 
         // 更新道路
@@ -2378,8 +2413,15 @@
                 config.moveSpeed = originalMoveSpeed;
 
                 // 更新相机
-                camera.position.z = ball.position.z + 10;
-                camera.lookAt(0, 0.5, ball.position.z + 5);
+                const camTargetX = isMobile ? ball.position.x * 0.24 : 0;
+                const camTargetY = isMobile ? 6.4 : 5;
+                const camLookAtY = isMobile ? 0.85 : 0.5;
+                const camZOffset = isMobile ? 11.8 : 10;
+
+                camera.position.x += (camTargetX - camera.position.x) * 0.16;
+                camera.position.y += (camTargetY - camera.position.y) * 0.12;
+                camera.position.z = ball.position.z + camZOffset;
+                camera.lookAt(camTargetX, camLookAtY, ball.position.z + 5.3);
             }
 
             // 在恢复原始速度后更新UI，确保显示的是原始速度
@@ -2430,11 +2472,8 @@
                 ball.position.x += deltaX * movementScale;
 
                 // 边界限制，防止小球半个卡边
-                const ballRadius = ball.userData && ball.userData.radius ? ball.userData.radius : 0.5;
-                const roadHalfWidth = config.roadWidth / 2;
-                const minX = -roadHalfWidth + ballRadius;
-                const maxX = roadHalfWidth - ballRadius;
-                ball.position.x = Math.max(minX, Math.min(maxX, ball.position.x));
+                const halfRoadSafe = getBallHorizontalLimit();
+                ball.position.x = Math.max(-halfRoadSafe, Math.min(halfRoadSafe, ball.position.x));
             } else if (!game.paused) {
                 // 计算滑动距离
                 const deltaX = touchEndX - touchStartX;
