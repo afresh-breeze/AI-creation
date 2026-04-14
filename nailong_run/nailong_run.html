@@ -506,7 +506,13 @@
                             child.castShadow = !isMobile;
                             child.receiveShadow = false;
 
-                            if (child.geometry && !child.geometry.attributes.normal) {
+                            if (child.geometry && isMobile) {
+                                // 压缩模型在移动端容易出现法线接缝，强制重建并归一化
+                                child.geometry.computeVertexNormals();
+                                if (typeof child.geometry.normalizeNormals === 'function') {
+                                    child.geometry.normalizeNormals();
+                                }
+                            } else if (child.geometry && !child.geometry.attributes.normal) {
                                 child.geometry.computeVertexNormals();
                             }
 
@@ -520,19 +526,27 @@
                                     // 移动端压缩模型常见黑线：降低高光硬边与法线过强
                                     if (isMobile) {
                                         if (typeof mat.roughness === 'number') {
-                                            mat.roughness = Math.max(0.52, mat.roughness);
+                                            mat.roughness = Math.max(0.66, mat.roughness);
                                         }
                                         if (typeof mat.metalness === 'number') {
-                                            mat.metalness = Math.min(0.35, mat.metalness);
+                                            mat.metalness = Math.min(0.2, mat.metalness);
                                         }
                                         if (mat.normalScale && typeof mat.normalScale.set === 'function') {
-                                            mat.normalScale.set(0.85, 0.85);
+                                            mat.normalScale.set(0.55, 0.55);
+                                        }
+                                        if (mat.normalMap) {
+                                            // 移动端上法线贴图常放大接缝黑线
+                                            mat.normalMap = null;
+                                        }
+                                        if (typeof mat.aoMapIntensity === 'number') {
+                                            mat.aoMapIntensity = Math.min(0.4, mat.aoMapIntensity);
                                         }
                                         if (mat.polygonOffset !== undefined) {
                                             mat.polygonOffset = true;
-                                            mat.polygonOffsetFactor = 0.4;
+                                            mat.polygonOffsetFactor = 0.8;
                                             mat.polygonOffsetUnits = 1;
                                         }
+                                        mat.dithering = true;
                                     }
 
                                     if (mat.map) {
@@ -541,10 +555,10 @@
                                             ? renderer.capabilities.getMaxAnisotropy()
                                             : 1;
                                         const targetAniso = isMobile
-                                            ? Math.min(mobileTextureAnisotropyCap, maxAniso)
+                                            ? 1
                                             : Math.min(8, maxAniso);
                                         mat.map.anisotropy = Math.max(1, targetAniso);
-                                        mat.map.minFilter = THREE.LinearMipmapLinearFilter;
+                                        mat.map.minFilter = isMobile ? THREE.LinearFilter : THREE.LinearMipmapLinearFilter;
                                         mat.map.magFilter = THREE.LinearFilter;
                                         mat.map.needsUpdate = true;
                                     }
@@ -605,21 +619,21 @@
             // 启用抗锯齿和其他渲染选项
             renderer.setClearColor(0x1a1a2e, 1);
             renderer.toneMapping = THREE.LinearToneMapping;
-            renderer.toneMappingExposure = 1.0;
-            // 桌面端恢复原有风格（避免整体过亮），移动端保留更清晰的色彩输出
-            renderer.outputEncoding = isMobile ? THREE.sRGBEncoding : THREE.LinearEncoding;
+            renderer.toneMappingExposure = isMobile ? 0.93 : 1.0;
+            // 移动端也使用线性输出，避免整体偏亮影响风格统一
+            renderer.outputEncoding = THREE.LinearEncoding;
             document.body.appendChild(renderer.domElement);
 
             // 添加灯光
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+            const ambientLight = new THREE.AmbientLight(0xffffff, isMobile ? 0.74 : 0.8);
             scene.add(ambientLight);
 
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, isMobile ? 0.96 : 1.2);
             directionalLight.position.set(0, 10, -5);
             scene.add(directionalLight);
 
             // 添加额外的方向光，从侧面照射，减少阴影
-            const sideLight = new THREE.DirectionalLight(0xffffff, 0.6);
+            const sideLight = new THREE.DirectionalLight(0xffffff, isMobile ? 0.42 : 0.6);
             sideLight.position.set(10, 5, 0);
             scene.add(sideLight);
 
