@@ -393,6 +393,7 @@
         let naiLongModel = null;
     let modelLoadingShownAt = 0;
     const minLoadingVisibleMs = isMobile ? 520 : 260;
+    const mobileTextureAnisotropyCap = 2;
 
         function showModelLoading(text = '正在加载模型 0%') {
             const loadingEl = document.getElementById('model-loading');
@@ -501,19 +502,59 @@
                     naiLongModel.position.y = -0.5;
                     naiLongModel.traverse(function (child) {
                         if (child.isMesh) {
-                            child.castShadow = true;
-                            child.receiveShadow = true;
-                            // 禁用线框模式，避免出现黑线
+                            // 移动端优先稳定：弱化阴影伪影来源
+                            child.castShadow = !isMobile;
+                            child.receiveShadow = false;
+
+                            if (child.geometry && !child.geometry.attributes.normal) {
+                                child.geometry.computeVertexNormals();
+                            }
+
                             if (child.material) {
-                                child.material.wireframe = false;
-                                // 禁用边缘高亮
-                                if (child.material.edgeThreshold !== undefined) {
-                                    child.material.edgeThreshold = 0;
-                                }
-                                // 调整材质设置，减少黑线的出现
-                                if (child.material.side === undefined) {
-                                    child.material.side = THREE.FrontSide;
-                                }
+                                const materials = Array.isArray(child.material) ? child.material : [child.material];
+                                materials.forEach((mat) => {
+                                    // 禁用线框，统一正面渲染，减少边缘黑缝
+                                    mat.wireframe = false;
+                                    mat.side = THREE.FrontSide;
+
+                                    // 移动端压缩模型常见黑线：降低高光硬边与法线过强
+                                    if (isMobile) {
+                                        if (typeof mat.roughness === 'number') {
+                                            mat.roughness = Math.max(0.52, mat.roughness);
+                                        }
+                                        if (typeof mat.metalness === 'number') {
+                                            mat.metalness = Math.min(0.35, mat.metalness);
+                                        }
+                                        if (mat.normalScale && typeof mat.normalScale.set === 'function') {
+                                            mat.normalScale.set(0.85, 0.85);
+                                        }
+                                        if (mat.polygonOffset !== undefined) {
+                                            mat.polygonOffset = true;
+                                            mat.polygonOffsetFactor = 0.4;
+                                            mat.polygonOffsetUnits = 1;
+                                        }
+                                    }
+
+                                    if (mat.map) {
+                                        // 轻量清晰度提升：低成本各向异性，避免斜视角糊边/暗线
+                                        const maxAniso = renderer && renderer.capabilities
+                                            ? renderer.capabilities.getMaxAnisotropy()
+                                            : 1;
+                                        const targetAniso = isMobile
+                                            ? Math.min(mobileTextureAnisotropyCap, maxAniso)
+                                            : Math.min(8, maxAniso);
+                                        mat.map.anisotropy = Math.max(1, targetAniso);
+                                        mat.map.minFilter = THREE.LinearMipmapLinearFilter;
+                                        mat.map.magFilter = THREE.LinearFilter;
+                                        mat.map.needsUpdate = true;
+                                    }
+
+                                    // 禁用边缘高亮（若材质支持）
+                                    if (mat.edgeThreshold !== undefined) {
+                                        mat.edgeThreshold = 0;
+                                    }
+                                    mat.needsUpdate = true;
+                                });
                             }
                         }
                     });
@@ -558,12 +599,15 @@
                 precision: 'mediump' // 移动端建议使用 mediump 提高兼容性
             });
             // 移动端进一步降低像素比，提升流畅度
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.1 : 2));
+            const mobilePixelRatioCap = (window.devicePixelRatio || 1) >= 2 ? 1.25 : 1.15;
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? mobilePixelRatioCap : 2));
             renderer.setSize(window.innerWidth, window.innerHeight);
             // 启用抗锯齿和其他渲染选项
             renderer.setClearColor(0x1a1a2e, 1);
             renderer.toneMapping = THREE.LinearToneMapping;
             renderer.toneMappingExposure = 1.0;
+            // 桌面端恢复原有风格（避免整体过亮），移动端保留更清晰的色彩输出
+            renderer.outputEncoding = isMobile ? THREE.sRGBEncoding : THREE.LinearEncoding;
             document.body.appendChild(renderer.domElement);
 
             // 添加灯光
@@ -2413,12 +2457,13 @@
                 config.moveSpeed = originalMoveSpeed;
 
                 // 更新相机
-                const camTargetX = isMobile ? ball.position.x * 0.24 : 0;
+                // 移动端固定X轴视角，避免左右操作时道路出现晃动感
+                const camTargetX = 0;
                 const camTargetY = isMobile ? 6.4 : 5;
                 const camLookAtY = isMobile ? 0.85 : 0.5;
                 const camZOffset = isMobile ? 11.8 : 10;
 
-                camera.position.x += (camTargetX - camera.position.x) * 0.16;
+                camera.position.x += (camTargetX - camera.position.x) * 0.12;
                 camera.position.y += (camTargetY - camera.position.y) * 0.12;
                 camera.position.z = ball.position.z + camZOffset;
                 camera.lookAt(camTargetX, camLookAtY, ball.position.z + 5.3);
