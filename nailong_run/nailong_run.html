@@ -548,9 +548,9 @@
                                     const materials = Array.isArray(child.material) ? child.material : [child.material];
                                     const tunedMaterials = materials.map((mat) => {
                                         if (!mat) return mat;
-                                        // 原色基础上轻微提升饱和度和亮度
+                                        // 仅提升奶龙材质饱和度，不通过打光提亮
                                         let baseColor = mat.color ? mat.color.clone() : new THREE.Color(0xffffff);
-                                        baseColor.offsetHSL(0, 0.08, 0.08); // 饱和度+0.08，亮度+0.08
+                                        baseColor.offsetHSL(0, 0.30, 0.06); // 饱和度+0.30，亮度+0.06（去掉轻微发黑）
                                         const phong = new THREE.MeshPhongMaterial({
                                             color: baseColor,
                                             map: mat.map || null,
@@ -633,21 +633,23 @@
             // 启用抗锯齿和其他渲染选项
             renderer.setClearColor(0x1a1a2e, 1);
             renderer.toneMapping = THREE.LinearToneMapping;
-            // 移动端适当提升曝光，减少观感偏暗
-            renderer.toneMappingExposure = isMobile ? 1.16 : 1.0;
+            // 统一移动端与电脑端色彩参数，降低发白感
+            renderer.toneMappingExposure = 0.96;
             renderer.outputEncoding = THREE.sRGBEncoding;
             document.body.appendChild(renderer.domElement);
+            // 轻量色彩分级：提高饱和度并略增对比，统一各端观感
+            renderer.domElement.style.filter = 'saturate(1.2) contrast(1.05)';
 
             // 添加灯光
-            const ambientLight = new THREE.AmbientLight(0xffffff, isMobile ? 0.48 : 0.36);
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.34);
             scene.add(ambientLight);
 
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.75);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.72);
             directionalLight.position.set(0, 10, -5);
             scene.add(directionalLight);
 
             // 侧光适中
-            const sideLight = new THREE.DirectionalLight(0xffffff, 0.22);
+            const sideLight = new THREE.DirectionalLight(0xffffff, 0.2);
             sideLight.position.set(10, 5, 0);
             scene.add(sideLight);
 
