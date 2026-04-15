@@ -232,13 +232,22 @@
         #model-loading .spinner {
             width: 44px;
             height: 44px;
+            display: none;
             border: 8px solid rgba(110, 210, 255, 0.25); /* 加粗 */
             border-top-color: #6ed2ff;
             border-radius: 50%;
             animation: modelSpin 0.85s linear infinite;
             -webkit-animation: modelSpin 0.85s linear infinite;
+            animation-play-state: paused;
+            -webkit-animation-play-state: paused;
             transform: translateZ(0);
             will-change: transform;
+        }
+
+        #model-loading.is-loading .spinner {
+            display: block;
+            animation-play-state: running;
+            -webkit-animation-play-state: running;
         }
 
         #model-loading .loading-tip {
@@ -416,6 +425,7 @@
             if (loadingEl) {
                 modelLoadingShownAt = performance.now();
                 loadingEl.style.display = 'flex';
+                loadingEl.classList.add('is-loading');
             }
         }
 
@@ -431,10 +441,12 @@
             const remain = Math.max(0, minLoadingVisibleMs - elapsed);
             if (remain > 0) {
                 setTimeout(() => {
+                    loadingEl.classList.remove('is-loading');
                     loadingEl.style.display = 'none';
                 }, remain);
                 return;
             }
+            loadingEl.classList.remove('is-loading');
             loadingEl.style.display = 'none';
         }
 
@@ -524,7 +536,10 @@
             if (naiLongModelTemplate) {
                 naiLongModel = naiLongModelTemplate.clone(true);
                 const loadingEl = document.getElementById('model-loading');
-                if (loadingEl) loadingEl.style.display = 'none';
+                if (loadingEl) {
+                    loadingEl.classList.remove('is-loading');
+                    loadingEl.style.display = 'none';
+                }
                 createRoad();
             } else {
                 showModelLoading('正在加载模型 0%');
@@ -605,6 +620,8 @@
                     function (error) {
                         console.error('模型加载失败的原因:', error);
                         updateModelLoading('模型加载失败，请刷新重试');
+                        const loadingEl = document.getElementById('model-loading');
+                        if (loadingEl) loadingEl.classList.remove('is-loading');
                         // 在手机上弹窗提示具体错误，方便调试
                         // alert('错误详情: ' + JSON.stringify(error));
                     }
