@@ -191,6 +191,68 @@
             padding: 0 20px;
         }
 
+        #model-loading {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 14px;
+            background: rgba(8, 12, 22, 0.78);
+            backdrop-filter: blur(2px);
+            -webkit-backdrop-filter: blur(2px);
+            z-index: 99999;
+            color: #e8f8ff;
+            font-size: 15px;
+            letter-spacing: 0.3px;
+        }
+
+        @media screen and (max-width: 768px) {
+            #model-loading {
+                font-size: 15px;
+                gap: 12px;
+            }
+
+            #model-loading .spinner {
+                width: 38px;
+                height: 38px;
+                border-width: 7px;
+            }
+        }
+
+        #model-loading .spinner {
+            width: 44px;
+            height: 44px;
+            display: none;
+            border: 8px solid rgba(110, 210, 255, 0.25);
+            border-top-color: #6ed2ff;
+            border-radius: 50%;
+            animation: modelSpin 0.85s linear infinite;
+            -webkit-animation: modelSpin 0.85s linear infinite;
+            animation-play-state: paused;
+            -webkit-animation-play-state: paused;
+            transform: translateZ(0);
+            will-change: transform;
+        }
+
+        #model-loading.is-loading .spinner {
+            display: block;
+            animation-play-state: running;
+            -webkit-animation-play-state: running;
+        }
+
+        #model-loading .loading-tip {
+            opacity: 0.92;
+            text-shadow: 0 0 8px rgba(110, 210, 255, 0.25);
+        }
+
+        @keyframes modelSpin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
         @keyframes scoreTwinkle {
             0% {
                 transform: scale(1);
@@ -211,6 +273,11 @@
 </head>
 
 <body>
+    <div id="model-loading">
+        <div class="spinner"></div>
+        <div id="model-loading-text" class="loading-tip">正在初始化场景...</div>
+    </div>
+
     <div id="score" class="ui">
         分数: 0
     </div>
@@ -281,6 +348,65 @@
         let animationId = null;
         let lastTime = 0;
         let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        const deviceMemoryGB = navigator.deviceMemory || 0;
+        const hardwareThreads = navigator.hardwareConcurrency || 4;
+    const memoryKnown = deviceMemoryGB > 0;
+        let mobilePixelRatioCap = 1.45;
+        let mobileAnisotropyCap = 2;
+        let enableMobileAntialias = false;
+        let textureAnisotropyLevel = 1;
+
+        function updateMobileRenderTuning() {
+            if (!isMobile) {
+                mobilePixelRatioCap = 2;
+                mobileAnisotropyCap = 8;
+                enableMobileAntialias = true;
+                return;
+            }
+
+            const dpr = window.devicePixelRatio || 1;
+            const shortEdge = Math.min(window.innerWidth, window.innerHeight);
+            const highEnd =
+                (memoryKnown && deviceMemoryGB >= 6 && hardwareThreads >= 8) ||
+                (!memoryKnown && hardwareThreads >= 10 && dpr >= 3);
+            const mediumEnd =
+                (memoryKnown && deviceMemoryGB >= 4 && hardwareThreads >= 6) ||
+                (!memoryKnown && hardwareThreads >= 8);
+
+            if (highEnd && dpr >= 2.2 && shortEdge >= 390) {
+                mobilePixelRatioCap = 1.52;
+                mobileAnisotropyCap = 3;
+                enableMobileAntialias = true;
+            } else if (mediumEnd) {
+                mobilePixelRatioCap = 1.42;
+                mobileAnisotropyCap = 2;
+                enableMobileAntialias = false;
+            } else {
+                mobilePixelRatioCap = 1.32;
+                mobileAnisotropyCap = 1;
+                enableMobileAntialias = false;
+            }
+        }
+
+        function getRenderPixelRatioCap() {
+            return isMobile ? mobilePixelRatioCap : 2;
+        }
+
+        function applyTextureClarity(texture, { isDynamic = false } = {}) {
+            if (!texture) return;
+
+            texture.magFilter = THREE.LinearFilter;
+            texture.minFilter = isDynamic ? THREE.LinearFilter : THREE.LinearMipmapLinearFilter;
+
+            if (!isDynamic) {
+                texture.generateMipmaps = true;
+            }
+
+            texture.anisotropy = textureAnisotropyLevel;
+            texture.needsUpdate = true;
+        }
+
+        updateMobileRenderTuning();
 
         // 游戏配置
         const config = {
@@ -332,6 +458,89 @@
         let keys = {};
         let roadMaterial = null;
         let vortexTexturePool = [];
+    const mobileFaceRefreshIntervalMs = 90;
+        let modelLoadingShownAt = 0;
+        const minLoadingVisibleMs = isMobile ? 520 : 260;
+        const loadingAppearDelayMs = isMobile ? 260 : 180;
+        let modelLoadingTimer = null;
+        let modelLoadingVisible = false;
+
+        function showModelLoading(text = '正在初始化场景...') {
+            const loadingEl = document.getElementById('model-loading');
+            const textEl = document.getElementById('model-loading-text');
+            if (textEl) textEl.textContent = text;
+            if (!loadingEl) return;
+
+            if (modelLoadingTimer) {
+                clearTimeout(modelLoadingTimer);
+                modelLoadingTimer = null;
+            }
+
+            modelLoadingVisible = false;
+            loadingEl.classList.remove('is-loading');
+            loadingEl.style.display = 'none';
+
+            modelLoadingTimer = setTimeout(() => {
+                modelLoadingShownAt = performance.now();
+                loadingEl.style.display = 'flex';
+                loadingEl.classList.add('is-loading');
+                modelLoadingVisible = true;
+                modelLoadingTimer = null;
+            }, loadingAppearDelayMs);
+        }
+
+        function hideModelLoading() {
+            const loadingEl = document.getElementById('model-loading');
+            if (!loadingEl) return;
+
+            if (modelLoadingTimer) {
+                clearTimeout(modelLoadingTimer);
+                modelLoadingTimer = null;
+            }
+
+            if (!modelLoadingVisible) {
+                loadingEl.classList.remove('is-loading');
+                loadingEl.style.display = 'none';
+                return;
+            }
+
+            const elapsed = performance.now() - modelLoadingShownAt;
+            const remain = Math.max(0, minLoadingVisibleMs - elapsed);
+
+            if (remain > 0) {
+                setTimeout(() => {
+                    loadingEl.classList.remove('is-loading');
+                    loadingEl.style.display = 'none';
+                    modelLoadingVisible = false;
+                }, remain);
+                return;
+            }
+
+            loadingEl.classList.remove('is-loading');
+            loadingEl.style.display = 'none';
+            modelLoadingVisible = false;
+        }
+
+        function initGameWithLoading({ text = '正在初始化场景...', autoStart = false } = {}) {
+            showModelLoading(text);
+
+            requestAnimationFrame(() => {
+                setTimeout(() => {
+                    try {
+                        initGame();
+                        if (autoStart) {
+                            game.gameStarted = true;
+                            const startScreen = document.getElementById('start-screen');
+                            if (startScreen) {
+                                startScreen.style.display = 'none';
+                            }
+                        }
+                    } finally {
+                        hideModelLoading();
+                    }
+                }, 0);
+            });
+        }
 
         // 初始化游戏
         function initGame() {
@@ -402,16 +611,23 @@
             const aspect = window.innerWidth / window.innerHeight;
             const fov = isMobile ? 85 : 75; // 手机端使用更大的视场角
             camera = new THREE.PerspectiveCamera(fov, aspect, 0.1, 1000);
-            camera.position.set(0, 5, 10);
+            camera.position.set(0, isMobile ? 6.4 : 5, isMobile ? 11.8 : 10);
 
             // 创建渲染器
             renderer = new THREE.WebGLRenderer({
-                antialias: !isMobile,
+                antialias: !isMobile || enableMobileAntialias,
                 powerPreference: 'high-performance'
             });
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.55 : 2));
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, getRenderPixelRatioCap()));
             renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.toneMapping = THREE.LinearToneMapping;
+            renderer.toneMappingExposure = 1.0;
+            renderer.outputEncoding = THREE.sRGBEncoding;
+            textureAnisotropyLevel = renderer && renderer.capabilities
+                ? Math.max(1, Math.min(isMobile ? mobileAnisotropyCap : 8, renderer.capabilities.getMaxAnisotropy()))
+                : 1;
             document.body.appendChild(renderer.domElement);
+            renderer.domElement.style.filter = 'saturate(1.04) contrast(1.02)';
 
             // 添加灯光
             const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
@@ -497,6 +713,7 @@
             sctx.fillStyle = starGrad;
             sctx.fillRect(0, 0, 32, 32);
             const starTexture = new THREE.CanvasTexture(starCanvas);
+            applyTextureClarity(starTexture);
 
             const starsMaterial = new THREE.PointsMaterial({
                 size: isMobile ? 0.42 : 0.55,
@@ -543,6 +760,7 @@
                 tex.wrapS = THREE.RepeatWrapping;
                 tex.wrapT = THREE.RepeatWrapping;
                 tex.repeat.set(1, 1);
+                applyTextureClarity(tex);
                 return tex;
             };
 
@@ -808,6 +1026,7 @@
             texture.wrapS = THREE.RepeatWrapping;
             texture.wrapT = THREE.RepeatWrapping;
             texture.repeat.set(1, 5);
+            applyTextureClarity(texture);
 
             return new THREE.MeshStandardMaterial({
                 map: texture,
@@ -1005,49 +1224,181 @@
             return texture;
         }
 
-        function createDonutObstacle(obstacle) {
-            const dough = new THREE.Mesh(
-                new THREE.TorusGeometry(0.62, 0.22, 20, 80),
-                new THREE.MeshStandardMaterial({
-                    color: 0xc6924e,
-                    roughness: 0.62,
-                    metalness: 0.06
-                })
-            );
-            obstacle.add(dough);
+        function createVortexRingTexture({ reverse = false, phaseOffset = 0 } = {}) {
+            const canvas = document.createElement('canvas');
+            const texSize = isMobile ? 640 : 1024;
+            canvas.width = texSize;
+            canvas.height = texSize;
+            const ctx = canvas.getContext('2d');
+            const c = texSize / 2;
+            const outerR = c * 0.92;
+            const innerR = c * 0.56;
 
-            const glaze = new THREE.Mesh(
-                new THREE.TorusGeometry(0.62, 0.205, 20, 80, Math.PI),
-                new THREE.MeshStandardMaterial({
-                    color: 0x8f5a2d,
-                    roughness: 0.48,
-                    metalness: 0.08,
-                    emissive: 0x2d1709,
-                    emissiveIntensity: 0.18
-                })
-            );
-            glaze.rotation.z = Math.PI;
-            glaze.position.y = 0.04;
-            obstacle.add(glaze);
+            ctx.clearRect(0, 0, texSize, texSize);
 
-            for (let i = 0; i < 18; i++) {
-                const sprinkle = new THREE.Mesh(
-                    new THREE.BoxGeometry(0.08, 0.02, 0.02),
-                    new THREE.MeshStandardMaterial({
-                        color: [0xe8d37f, 0xcf8c6f, 0xe9b86b][i % 3],
-                        roughness: 0.4,
-                        metalness: 0.05
-                    })
-                );
-                const angle = Math.random() * Math.PI * 2;
-                const r = 0.62 + (Math.random() - 0.5) * 0.16;
-                sprinkle.position.set(Math.cos(angle) * r, Math.abs(Math.sin(angle)) * 0.22 + 0.02, Math.sin(angle) * r);
-                sprinkle.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
-                obstacle.add(sprinkle);
+            const colors = {
+                glow: 'rgba(120, 200, 255, 0.05)',
+                ice: 'rgba(170, 220, 255, 0.46)',
+                white: 'rgba(255, 255, 255, 0.55)'
+            };
+
+            // 仅在环形区域内绘制，保持标准正圆中空结构
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(c, c, outerR, 0, Math.PI * 2);
+            ctx.arc(c, c, innerR, 0, Math.PI * 2, true);
+            ctx.clip();
+
+            const lineCount = 2; // 每层2条，两层共4条
+            const turnsByLine = reverse ? [3.9, 3.05] : [3.35, 4.25]; // 线条长度不同，整体更紧凑
+            const steps = isMobile ? 500 : 740;
+            const baseWidth = isMobile ? 7.1 : 8.5; // 稍微加粗
+            const direction = reverse ? -1 : 1;
+
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            for (let line = 0; line < lineCount; line++) {
+                const phase = phaseOffset + (line / lineCount) * Math.PI * 2;
+                const maxTheta = turnsByLine[line] * Math.PI * 2;
+                for (let i = 1; i <= steps; i++) {
+                    const t = i / steps;
+                    const prevT = (i - 1) / steps;
+
+                    // 交替环绕：四条主线共享同一旋涡趋势，并通过相位错开形成交错结构
+                    const theta = phase + direction * (t * maxTheta) + Math.sin((t * 2 + line * 0.5) * Math.PI) * 0.03;
+                    const prevTheta = phase + direction * (prevT * maxTheta) + Math.sin((prevT * 2 + line * 0.5) * Math.PI) * 0.03;
+
+                    const r = outerR - Math.pow(t, 1.06) * (outerR - innerR);
+                    const prevR = outerR - Math.pow(prevT, 1.06) * (outerR - innerR);
+
+                    const x = c + Math.cos(theta) * r;
+                    const y = c + Math.sin(theta) * r;
+                    const px = c + Math.cos(prevTheta) * prevR;
+                    const py = c + Math.sin(prevTheta) * prevR;
+
+                    // 粗细均匀：仅极轻微变化，避免视觉结团
+                    const w = baseWidth * (0.96 + 0.04 * (1 - t));
+
+                    ctx.strokeStyle = colors.glow;
+                    ctx.globalAlpha = 0.022;
+                    ctx.lineWidth = w * 2.1;
+                    ctx.beginPath();
+                    ctx.moveTo(px, py);
+                    ctx.lineTo(x, y);
+                    ctx.stroke();
+
+                    ctx.strokeStyle = colors.ice;
+                    ctx.globalAlpha = 0.33 + 0.13 * (1 - t);
+                    ctx.lineWidth = w;
+                    ctx.beginPath();
+                    ctx.moveTo(px, py);
+                    ctx.lineTo(x, y);
+                    ctx.stroke();
+
+                    ctx.strokeStyle = colors.white;
+                    ctx.globalAlpha = 0.21 + 0.15 * (1 - t);
+                    ctx.lineWidth = Math.max(0.9, w * 0.22);
+                    ctx.beginPath();
+                    ctx.moveTo(px, py);
+                    ctx.lineTo(x, y);
+                    ctx.stroke();
+                }
             }
 
-            obstacle.userData.collider = { type: 'torus', ringRadius: 0.62, tubeRadius: 0.22, isArch: true };
+            ctx.restore();
+
+            // 再次硬挖空中心，确保中间完全镂空
+            ctx.save();
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.beginPath();
+            ctx.arc(c, c, innerR * 1.04, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.ClampToEdgeWrapping;
+            texture.wrapT = THREE.ClampToEdgeWrapping;
+            texture.center.set(0.5, 0.5);
+            applyTextureClarity(texture);
+            return texture;
+        }
+
+        function createDonutObstacle(obstacle) {
+            const ringTextureA = createVortexRingTexture({ reverse: false, phaseOffset: 0 });
+            const ringTextureB = createVortexRingTexture({ reverse: true, phaseOffset: Math.PI / 8 });
+
+            const innerRadius = 0.58;
+            const outerRadius = 0.92;
+            const ringGeo = new THREE.RingGeometry(innerRadius, outerRadius, 112, 2);
+
+            const frontA = new THREE.Mesh(
+                ringGeo,
+                new THREE.MeshStandardMaterial({
+                    map: ringTextureA,
+                    color: 0xffffff,
+                    transparent: true,
+                    opacity: 0.95,
+                    depthWrite: false,
+                    side: THREE.DoubleSide,
+                    roughness: 0.25,
+                    metalness: 0.05,
+                    emissive: 0xbfe8ff,
+                    emissiveMap: ringTextureA,
+                    emissiveIntensity: 0.35,
+                    blending: THREE.AdditiveBlending
+                })
+            );
+            const frontB = new THREE.Mesh(
+                ringGeo,
+                new THREE.MeshStandardMaterial({
+                    map: ringTextureB,
+                    color: 0xffffff,
+                    transparent: true,
+                    opacity: 0.9,
+                    depthWrite: false,
+                    side: THREE.DoubleSide,
+                    roughness: 0.25,
+                    metalness: 0.05,
+                    emissive: 0xbfe8ff,
+                    emissiveMap: ringTextureB,
+                    emissiveIntensity: 0.35,
+                    blending: THREE.AdditiveBlending
+                })
+            );
+            const backA = frontA.clone();
+            backA.material = frontA.material.clone();
+            backA.material.map = ringTextureA;
+            backA.material.emissiveMap = ringTextureA;
+            backA.rotation.y = Math.PI;
+            const backB = frontB.clone();
+            backB.material = frontB.material.clone();
+            backB.material.map = ringTextureB;
+            backB.material.emissiveMap = ringTextureB;
+            backB.rotation.y = Math.PI;
+
+            frontA.position.z = 0.11;
+            frontB.position.z = 0.12;
+            backA.position.z = -0.11;
+            backB.position.z = -0.12;
+
+            obstacle.add(frontA);
+            obstacle.add(frontB);
+            obstacle.add(backA);
+            obstacle.add(backB);
+
+            // 边界判定与可视圆环保持一致：由几何内外半径推导环中心半径和管半径
+            const ringRadius = (innerRadius + outerRadius) * 0.5;
+            const tubeRadius = (outerRadius - innerRadius) * 0.5;
+            obstacle.userData.collider = { type: 'torus', ringRadius, tubeRadius, isArch: true };
             obstacle.userData.type = 'donut';
+            obstacle.userData.ringTextureA = ringTextureA;
+            obstacle.userData.ringTextureB = ringTextureB;
+            obstacle.userData.ringFrontA = frontA;
+            obstacle.userData.ringBackA = backA;
+            obstacle.userData.ringFrontB = frontB;
+            obstacle.userData.ringBackB = backB;
+            obstacle.userData.ringPhase = Math.random() * Math.PI * 2;
         }
 
         function createFaceBlockObstacle(obstacle) {
@@ -1241,7 +1592,12 @@
                         if (z < -20) {
                             const obstacle = createObstacle(true);
                             obstacle.position.set(x, obstacle.userData.hiddenY, z);
-                            obstacle.scale.set(4, 2, 2);
+                            if (obstacle.userData.type === 'donut') {
+                                // 保持正圆：甜甜圈使用等比缩放，避免被拉成椭圆
+                                obstacle.scale.setScalar(2.7);
+                            } else {
+                                obstacle.scale.set(4, 2, 2);
+                            }
                             obstacles.push(obstacle);
                             scene.add(obstacle);
                         }
@@ -1543,6 +1899,9 @@
         function updateRoad() {
             if (game.gameOver) return;
 
+            const nowMs = performance.now();
+            const nowSec = nowMs * 0.001;
+
             game.distance += config.speed;
 
             // 检查最大距离
@@ -1588,10 +1947,9 @@
                 obstacles[i].position.y = obstacles[i].userData.hiddenY +
                     (obstacles[i].userData.finalY - obstacles[i].userData.hiddenY) * progress;
 
-                const t = performance.now() * 0.001;
                 const obstacle = obstacles[i];
                 if (obstacle.userData.type === 'candle' && obstacle.userData.flameOuter && obstacle.userData.flameInner) {
-                    const flameWave = Math.sin(t * 7 + obstacle.userData.flamePhase);
+                    const flameWave = Math.sin(nowSec * 7 + obstacle.userData.flamePhase);
                     obstacle.userData.flameOuter.position.y = 0.84 + flameWave * 0.05;
                     obstacle.userData.flameOuter.scale.set(1 - flameWave * 0.08, 1 + Math.abs(flameWave) * 0.15, 1 - flameWave * 0.08);
                     obstacle.userData.flameInner.position.y = 0.82 + flameWave * 0.04;
@@ -1603,10 +1961,9 @@
                     const spin = 0.036;
                     obstacle.rotation.z += spin;
                     obstacle.userData.vortexTexture.rotation += spin * 1.55;
-                    const breathe = 0.85 + 0.15 * Math.sin(t * 6.6 + phase);
+                    const breathe = 0.85 + 0.15 * Math.sin(nowSec * 6.6 + phase);
                     obstacle.userData.vortexTexture.offset.x = 0;
                     obstacle.userData.vortexTexture.offset.y = 0;
-                    obstacle.userData.vortexTexture.needsUpdate = true;
                     const vf = obstacle.userData.vortexFront;
                     const vb = obstacle.userData.vortexBack;
                     if (vf && vf.material) {
@@ -1617,8 +1974,45 @@
                     }
                 }
 
+                if (obstacle.userData.type === 'donut' && obstacle.userData.ringTextureA && obstacle.userData.ringTextureB) {
+                    const phase = obstacle.userData.ringPhase || 0;
+                    const spin = 0.036;
+                    obstacle.rotation.z += spin * 0.45;
+
+                    obstacle.userData.ringTextureA.rotation += spin * 1.55;
+                    obstacle.userData.ringTextureA.offset.x = 0;
+                    obstacle.userData.ringTextureA.offset.y = 0;
+
+                    obstacle.userData.ringTextureB.rotation -= spin * 1.55;
+                    obstacle.userData.ringTextureB.offset.x = 0;
+                    obstacle.userData.ringTextureB.offset.y = 0;
+
+                    const breathe = 0.85 + 0.15 * Math.sin(nowSec * 6.6 + phase);
+                    const rfA = obstacle.userData.ringFrontA;
+                    const rbA = obstacle.userData.ringBackA;
+                    const rfB = obstacle.userData.ringFrontB;
+                    const rbB = obstacle.userData.ringBackB;
+                    if (rfA && rfA.material) {
+                        rfA.material.emissiveIntensity = 1.05 + 0.35 * breathe;
+                    }
+                    if (rbA && rbA.material) {
+                        rbA.material.emissiveIntensity = 0.95 + 0.28 * breathe;
+                    }
+                    if (rfB && rfB.material) {
+                        rfB.material.emissiveIntensity = 0.9 + 0.3 * (1 - breathe * 0.75);
+                    }
+                    if (rbB && rbB.material) {
+                        rbB.material.emissiveIntensity = 0.82 + 0.24 * (1 - breathe * 0.75);
+                    }
+                }
+
                 if (obstacle.userData.type === 'faceBlock' && obstacle.userData.blinkFace) {
-                    drawBlinkFace(obstacle.userData.blinkFace, performance.now());
+                    if (!isMobile || nowMs >= (obstacle.userData.nextFaceRefreshAt || 0)) {
+                        drawBlinkFace(obstacle.userData.blinkFace, nowMs);
+                        if (isMobile) {
+                            obstacle.userData.nextFaceRefreshAt = nowMs + mobileFaceRefreshIntervalMs;
+                        }
+                    }
                 }
 
                 if (obstacles[i].position.z > 10) {
@@ -1634,20 +2028,19 @@
                 const fadeEndZ = collectibles[i].userData.fadeEndZ ?? -26;
                 const appearProgress = Math.max(0, Math.min(1, (collectibles[i].position.z - fadeStartZ) / (fadeEndZ - fadeStartZ)));
                 collectibles[i].rotation.y += 0.015;
-                const pulse = 0.92 + Math.sin(performance.now() * 0.006 + i) * 0.1;
+                const pulse = 0.92 + Math.sin(nowMs * 0.006 + i) * 0.1;
                 const baseScale = collectibles[i].userData.baseScale ?? 1.2;
                 const fadeScale = 0.6 + appearProgress * 0.4;
                 collectibles[i].scale.set(pulse * baseScale * fadeScale, pulse * baseScale * fadeScale, pulse * baseScale * fadeScale);
                 const sparkles = collectibles[i].userData.sparkles || [];
-                const t = performance.now() * 0.001;
                 sparkles.forEach((sparkle, idx) => {
-                    const angle = t * sparkle.userData.speed + sparkle.userData.phase;
+                    const angle = nowSec * sparkle.userData.speed + sparkle.userData.phase;
                     sparkle.position.x = Math.cos(angle) * sparkle.userData.radius;
                     sparkle.position.y = Math.sin(angle * 1.2) * 0.05 + sparkle.userData.heightOffset;
                     sparkle.position.z = Math.sin(angle) * sparkle.userData.radius * 0.15;
-                    const twinkle = 0.26 + (0.18 * Math.sin(t * 5 + idx));
+                    const twinkle = 0.26 + (0.18 * Math.sin(nowSec * 5 + idx));
                     sparkle.material.opacity = twinkle * appearProgress;
-                    const sizePulse = 0.95 + 0.15 * Math.sin(t * 3.4 + idx);
+                    const sizePulse = 0.95 + 0.15 * Math.sin(nowSec * 3.4 + idx);
                     sparkle.scale.setScalar(sparkle.userData.size * sizePulse);
                 });
 
@@ -1752,44 +2145,30 @@
                         collisionDetected = true;
                     }
                 } else if (collider.type === 'torus') {
-                    const isArch = collider.isArch;
+                    // 优化圆环边界判定：分别计算环平面径向和厚度方向的归一化距离
+                    // 对非等比缩放也更稳定，减少中空区域误判和边缘“幽灵碰撞”
+                    const ringScale = Math.max(scale.x, scale.y);
+                    const depthScale = Math.max(0.0001, scale.z);
 
-                    if (isArch) {
-                        const torusRadius = collider.ringRadius * Math.max(scale.x, scale.z);
-                        const tubeRadius = collider.tubeRadius * Math.max(scale.x, scale.z);
+                    const torusRadius = collider.ringRadius * ringScale;
+                    const tubeRadiusRadial = collider.tubeRadius * ringScale;
+                    const tubeRadiusDepth = collider.tubeRadius * depthScale;
 
-                        const dx = ballPosition.x - position.x;
-                        const dy = ballPosition.y - position.y;
-                        const distToCenter = Math.sqrt(dx * dx + dy * dy);
+                    const dx = ballPosition.x - position.x;
+                    const dy = ballPosition.y - position.y;
+                    const radialDistance = Math.sqrt(dx * dx + dy * dy);
+                    const radialDelta = Math.abs(radialDistance - torusRadius);
+                    const dz = Math.abs(ballPosition.z - position.z);
 
-                        const dz = Math.abs(ballPosition.z - position.z);
+                    const radialLimit = tubeRadiusRadial + ballRadius;
+                    const depthLimit = tubeRadiusDepth + ballRadius;
 
-                        const distToTubeCenter = Math.sqrt(
-                            Math.pow(distToCenter - torusRadius, 2) +
-                            dz * dz
-                        );
+                    const normalized =
+                        Math.pow(radialDelta / Math.max(radialLimit, 1e-6), 2) +
+                        Math.pow(dz / Math.max(depthLimit, 1e-6), 2);
 
-                        if (distToTubeCenter < tubeRadius + ballRadius) {
-                            collisionDetected = true;
-                        }
-                    } else {
-                        const torusRadius = collider.ringRadius * Math.max(scale.x, scale.z);
-                        const tubeRadius = collider.tubeRadius * Math.max(scale.x, scale.z);
-
-                        const dx = ballPosition.x - position.x;
-                        const dy = ballPosition.y - position.y;
-                        const distToCenter = Math.sqrt(dx * dx + dy * dy);
-
-                        const dz = Math.abs(ballPosition.z - position.z);
-
-                        const distToTubeCenter = Math.sqrt(
-                            Math.pow(distToCenter - torusRadius, 2) +
-                            dz * dz
-                        );
-
-                        if (distToTubeCenter < tubeRadius + ballRadius) {
-                            collisionDetected = true;
-                        }
+                    if (normalized < 1) {
+                        collisionDetected = true;
                     }
                 } else {
                     const halfWidth = 0.5 * scale.x;
@@ -1928,9 +2307,7 @@
             game.score = 0;
             // 保存游戏状态
             saveGameState();
-            initGame();
-            game.gameStarted = true;
-            document.getElementById('start-screen').style.display = 'none';
+            initGameWithLoading({ text: '正在准备下一关...', autoStart: true });
         }
 
         // 游戏结束
@@ -1969,7 +2346,7 @@
             // 清除保存的游戏状态
             localStorage.removeItem('gameState');
             console.log('Game restarted, local storage cleared');
-            initGame();
+            initGameWithLoading({ text: '正在重建赛道...' });
         }
 
         // 加载游戏状态
@@ -2095,8 +2472,16 @@
                 config.moveSpeed = originalMoveSpeed;
 
                 // 更新相机
-                camera.position.z = ball.position.z + 10;
-                camera.lookAt(0, 0.5, ball.position.z + 5);
+                // 移动端固定X轴视角，避免左右操作时道路出现晃动感
+                const camTargetX = 0;
+                const camTargetY = isMobile ? 6.4 : 5;
+                const camLookAtY = isMobile ? 0.85 : 0.5;
+                const camZOffset = isMobile ? 11.8 : 10;
+
+                camera.position.x += (camTargetX - camera.position.x) * 0.12;
+                camera.position.y += (camTargetY - camera.position.y) * 0.12;
+                camera.position.z = ball.position.z + camZOffset;
+                camera.lookAt(camTargetX, camLookAtY, ball.position.z + 5.3);
             }
 
             if (renderer && scene && camera) {
@@ -2201,13 +2586,14 @@
             if (camera && renderer) {
                 camera.aspect = window.innerWidth / window.innerHeight;
                 camera.updateProjectionMatrix();
-                renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.55 : 2));
+                updateMobileRenderTuning();
+                renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, getRenderPixelRatioCap()));
                 renderer.setSize(window.innerWidth, window.innerHeight);
             }
         });
 
         // 启动游戏
-        initGame();
+        initGameWithLoading();
     </script>
 </body>
 
