@@ -98,14 +98,7 @@
                 display: block;
             }
 
-            /* 移动端规则提示文案切换 */
-            #rules-desktop {
-                display: none;
-            }
 
-            #rules-mobile {
-                display: block !important;
-            }
         }
 
         /* 游戏结束和开始屏幕 */
@@ -211,7 +204,7 @@
             background: rgba(8, 12, 22, 0.78);
             backdrop-filter: blur(2px);
             -webkit-backdrop-filter: blur(2px);
-            z-index: 99999; /* 提高优先级，确保在所有界面之上 */
+            z-index: 99999;
             color: #e8f8ff;
             font-size: 15px;
             letter-spacing: 0.3px;
@@ -324,7 +317,7 @@
             <div id="rules-desktop">
                 <p>1. 使用 A/← 键向左移动</p>
                 <p>2. 使用 D/→ 键向右移动</p>
-                <p>3. 按 P 键暂停游戏</p>
+                <p>3. 按空格暂停游戏/继续游戏</p>
                 <p>4. 躲避奶龙</p>
                 <p>5. 收集星光积分</p>
                 <p>6. 达到目标分数升级关卡</p>
@@ -491,9 +484,7 @@
             // 重置游戏状态（如果是首次加载或重新开始）
             if (!game.gameStarted) {
                 // 不重置分数，保留加载的分数
-                // if (game.level === 1) {
-                //     game.score = 0;
-                // }
+
                 game.gameOver = false;
                 game.distance = 0;
                 game.paused = false;
@@ -623,7 +614,7 @@
                         const loadingEl = document.getElementById('model-loading');
                         if (loadingEl) loadingEl.classList.remove('is-loading');
                         // 在手机上弹窗提示具体错误，方便调试
-                        // alert('错误详情: ' + JSON.stringify(error));
+
                     }
                 );
             }
