@@ -1483,20 +1483,21 @@
             const columns = [-4.5, -1.5, 1.5, 4.5];
             const availableColumns = [...columns];
 
-            // 根据关卡计算障碍物生成概率（关卡越高，概率越高）
-            const obstacleChance = Math.min(0.98, 0.8 + (game.level - 1) * 0.1);
+            // 障碍物密度平衡：第4关后不再过快拉满，避免“全是奶龙”导致分数不够
+            const obstacleChance = game.level >= 4
+                ? Math.min(0.86, 0.72 + (game.level - 4) * 0.03)
+                : Math.min(0.82, 0.68 + (game.level - 1) * 0.05);
 
-            // 每个路段生成2-3个障碍物，随关卡增加而增多
-            // 关卡1-2: 2个障碍物
-            // 关卡3-5: 2-3个障碍物
-            // 关卡6+: 3个障碍物
+            // 每段障碍物数量：保留难度增长，但减少第4关起的压制感
             let obstacleCount;
             if (game.level <= 2) {
                 obstacleCount = 2;
-            } else if (game.level <= 5) {
-                obstacleCount = Math.random() > 0.3 ? 3 : 2;
+            } else if (game.level <= 4) {
+                obstacleCount = 2;
+            } else if (game.level <= 7) {
+                obstacleCount = Math.random() > 0.55 ? 3 : 2;
             } else {
-                obstacleCount = 3;
+                obstacleCount = Math.random() > 0.35 ? 3 : 2;
             }
 
             // 计算障碍物的均匀分布位置（减小间距，增加密度）
@@ -1546,96 +1547,62 @@
                 }
             }
 
-            // 生成积分（增加积分生成概率）
-            // 关卡越高，积分生成概率越高
-            const collectibleChance = Math.min(0.98, 0.9 + (game.level - 1) * 0.02);
-            if (Math.random() < collectibleChance) { // 随关卡增加的积分生成概率
-                // 选择积分的X位置
-                let x;
-                if (availableColumns.length > 0) {
-                    // 从剩余列中随机选择
-                    const index = Math.floor(Math.random() * availableColumns.length);
-                    x = availableColumns[index];
-                } else {
-                    // 如果没有剩余列，从所有列中随机选择
-                    const index = Math.floor(Math.random() * columns.length);
-                    x = columns[index];
-                }
+            // 积分生成：第4关开始提供保底数量，避免时间耗尽仍无法达标
+            const collectibleChance = game.level >= 4
+                ? Math.min(0.995, 0.94 + (game.level - 4) * 0.01)
+                : Math.min(0.96, 0.86 + (game.level - 1) * 0.03);
 
-                // 积分放在路段中间，添加随机偏移
-                const z = startZ - segmentLength / 2 + (Math.random() - 0.5) * 3;
+            let spawnedCollectibles = 0;
+            const guaranteedCollectibles = game.level >= 8 ? 3 : (game.level >= 4 ? 2 : 1);
+            const spawnAttempts = game.level >= 8 ? 5 : 4;
 
-                // 确保积分不会生成在小球初始位置附近，距离更远
-                if (z < -15) {
-                    // 检查积分位置是否与障碍物重叠（减小安全距离，增加积分生成机会）
-                    let isOverlap = false;
-                    obstacles.forEach(obstacle => {
-                        const obsZ = obstacle.position.z;
-                        if (Math.abs(z - obsZ) < 1.5) { // 1.5 是安全距离，比之前的2更小
-                            isOverlap = true;
-                        }
-                    });
+            const trySpawnCollectible = (zSpread = 3, preferredColumns = null) => {
+                const pool = Array.isArray(preferredColumns) && preferredColumns.length > 0
+                    ? preferredColumns
+                    : columns;
 
-                    if (!isOverlap) {
-                        const collectible = createCollectible();
-                        collectible.userData.finalY = 1;
-                        collectible.userData.fadeStartZ = -66;
-                        collectible.userData.fadeEndZ = -26;
-                        collectible.userData.baseScale = 1.2;
-                        collectible.position.set(x, collectible.userData.finalY, z);
-                        collectible.scale.set(1.2, 1.2, 1.2);
-                        collectibles.push(collectible);
-                        scene.add(collectible);
-                    }
-                }
+                const x = pool[Math.floor(Math.random() * pool.length)];
+                const z = startZ - segmentLength / 2 + (Math.random() - 0.5) * zSpread;
+
+                if (z >= -15) return false;
+
+                // 避开障碍物与已有积分，减少“看得到吃不到”的刷点
+                const tooCloseToObstacle = obstacles.some(obstacle => {
+                    const dx = Math.abs(obstacle.position.x - x);
+                    const dz = Math.abs(obstacle.position.z - z);
+                    return dx < 1.2 && dz < 2.2;
+                });
+                if (tooCloseToObstacle) return false;
+
+                const tooCloseToCollectible = collectibles.some(collectible => {
+                    const dx = Math.abs(collectible.position.x - x);
+                    const dz = Math.abs(collectible.position.z - z);
+                    return dx < 1.0 && dz < 1.4;
+                });
+                if (tooCloseToCollectible) return false;
+
+                const collectible = createCollectible();
+                collectible.userData.finalY = 1;
+                collectible.userData.fadeStartZ = -66;
+                collectible.userData.fadeEndZ = -26;
+                collectible.userData.baseScale = 1.2;
+                collectible.position.set(x, collectible.userData.finalY, z);
+                collectible.scale.set(1.2, 1.2, 1.2);
+                collectibles.push(collectible);
+                scene.add(collectible);
+                spawnedCollectibles++;
+                return true;
+            };
+
+            // 概率触发的首个积分
+            if (Math.random() < collectibleChance) {
+                trySpawnCollectible(3, availableColumns);
             }
 
-            // 第四关及以上，额外增加积分生成机会
-            if (game.level >= 4 && Math.random() < 0.5) { // 50% 概率额外生成一个积分
-                // 选择积分的X位置（与第一个积分位置不同的列）
-                let x;
-                const usedColumns = new Set();
-                // 收集已使用的列
-                obstacles.forEach(obstacle => {
-                    usedColumns.add(obstacle.position.x);
-                });
-                // 收集可用的列
-                const possibleColumns = columns.filter(col => !usedColumns.has(col));
-
-                if (possibleColumns.length > 0) {
-                    const index = Math.floor(Math.random() * possibleColumns.length);
-                    x = possibleColumns[index];
-                } else {
-                    const index = Math.floor(Math.random() * columns.length);
-                    x = columns[index];
-                }
-
-                // 积分放在路段中，与第一个积分位置不同
-                const z = startZ - segmentLength / 2 + (Math.random() - 0.5) * 6;
-
-                // 确保积分不会生成在小球初始位置附近，距离更远
-                if (z < -15) {
-                    // 检查积分位置是否与障碍物重叠
-                    let isOverlap = false;
-                    obstacles.forEach(obstacle => {
-                        const obsZ = obstacle.position.z;
-                        if (Math.abs(z - obsZ) < 1.5) {
-                            isOverlap = true;
-                        }
-                    });
-
-                    if (!isOverlap) {
-                        const collectible = createCollectible();
-                        collectible.userData.finalY = 1;
-                        collectible.userData.fadeStartZ = -66;
-                        collectible.userData.fadeEndZ = -26;
-                        collectible.userData.baseScale = 1.2;
-                        collectible.position.set(x, collectible.userData.finalY, z);
-                        collectible.scale.set(1.2, 1.2, 1.2);
-                        collectibles.push(collectible);
-                        scene.add(collectible);
-                    }
-                }
+            // 保底补齐（第4关开始至少2个，第8关开始至少3个）
+            for (let attempt = 0; attempt < spawnAttempts && spawnedCollectibles < guaranteedCollectibles; attempt++) {
+                const zSpread = spawnedCollectibles === 0 ? 3 : 6;
+                trySpawnCollectible(zSpread);
             }
         }
 
