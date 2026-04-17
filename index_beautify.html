@@ -316,8 +316,8 @@
             <div id="rules-desktop">
                 <p>1. 使用 A/← 键向左移动</p>
                 <p>2. 使用 D/→ 键向右移动</p>
-                <p>3. 按空格键暂停游戏</p>
-                <p>4. 躲避障碍物</p>
+                <p>3. 使用 W/↑ 键跳跃</p>
+                <p>4. 按空格键暂停游戏</p>
                 <p>5. 收集星光积分</p>
                 <p>6. 达到目标分数升级关卡</p>
                 <p>7. 撞到障碍物游戏结束</p>
@@ -325,7 +325,7 @@
             <div id="rules-mobile" style="display: none;">
                 <p>1. 在屏幕下方左右滑动控制小球</p>
                 <p>2. 点击屏幕上方任意位置暂停游戏</p>
-                <p>3. 躲避障碍物</p>
+                <p>3. 外接键盘可用 W/↑ 键跳跃</p>
                 <p>4. 收集星光积分</p>
                 <p>5. 达到目标分数升级关卡</p>
                 <p>6. 撞到障碍物游戏结束</p>
@@ -338,8 +338,16 @@
         <h2>关卡 <span id="completed-level">1</span> 完成！</h2>
         <p>获得分数: <span id="completed-score">0</span></p>
         <p>目标分数: <span id="completed-target">50</span></p>
+        <p id="level-bonus-tip" style="display:none; color:#9ff3ff; text-shadow:0 0 8px rgba(159,243,255,0.55);"></p>
         <button class="btn-primary" onclick="nextLevel()">进入下一关</button>
         <button class="btn-danger" onclick="restartGame()">重新开始</button>
+    </div>
+
+    <div id="revive-modal"
+        style="display:none; position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); background:rgba(0,0,0,0.9); color:white; padding:30px; border-radius:10px; text-align:center; z-index:1100; max-width:90%; width:400px;">
+        <h2>成功复活</h2>
+        <p>剩余复活次数：<span id="revive-remaining">0</span></p>
+        <button class="btn-primary" onclick="continueAfterRevive()">继续游戏</button>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js?v=3"></script>
@@ -412,6 +420,9 @@
         const config = {
             speed: 0.1,
             moveSpeed: 0.05,
+            jumpVelocity: 0.23,
+            jumpGravity: 0.013,
+            groundY: 0.5,
             roadWidth: 12,
             roadLength: 200,
             segments: isMobile ? 8 : 10,
@@ -456,6 +467,8 @@
         const ballTrailMaxNodes = isMobile ? 40 : 56;
         let ballTrailDirection = null;
         let keys = {};
+    let verticalVelocity = 0;
+    let isGrounded = true;
         let roadMaterial = null;
         let vortexTexturePool = [];
     const mobileFaceRefreshIntervalMs = 90;
@@ -464,6 +477,19 @@
         const loadingAppearDelayMs = isMobile ? 260 : 180;
         let modelLoadingTimer = null;
         let modelLoadingVisible = false;
+        let reviveChances = 0;
+        let currentLevelCollectibleSpawned = 0;
+        let currentLevelCollectibleCollected = 0;
+    let currentLevelCollectibleMissed = 0;
+        let reviveInvincibleUntilMs = 0;
+        const perfectLevelsAchieved = new Set();
+
+        function hasPerfectGrandSlamFirstNine() {
+            for (let level = 1; level <= 9; level++) {
+                if (!perfectLevelsAchieved.has(level)) return false;
+            }
+            return true;
+        }
 
         function showModelLoading(text = '正在初始化场景...') {
             const loadingEl = document.getElementById('model-loading');
@@ -593,6 +619,21 @@
             ballTrailDirection = null;
             vortexTexturePool = [];
             keys = {};
+            currentLevelCollectibleSpawned = 0;
+            currentLevelCollectibleCollected = 0;
+            currentLevelCollectibleMissed = 0;
+            reviveInvincibleUntilMs = 0;
+
+            const levelBonusTip = document.getElementById('level-bonus-tip');
+            if (levelBonusTip) {
+                levelBonusTip.style.display = 'none';
+                levelBonusTip.textContent = '';
+            }
+
+            const reviveModal = document.getElementById('revive-modal');
+            if (reviveModal) {
+                reviveModal.style.display = 'none';
+            }
 
             // 清除旧场景
             if (renderer) {
@@ -812,7 +853,9 @@
             ballGroup.userData.core = core;
 
             ball = ballGroup;
-            ball.position.set(0, 0.5, 0);
+            ball.position.set(0, config.groundY, 0);
+            verticalVelocity = 0;
+            isGrounded = true;
             lastBallX = ball.position.x;
             scene.add(ball);
 
@@ -1047,34 +1090,69 @@
             if (timeMs > faceData.nextBlinkAt) {
                 faceData.blinking = true;
                 faceData.blinkProgress = 1;
-                faceData.nextBlinkAt = timeMs + 1500 + Math.random() * 2200;
+                faceData.nextBlinkAt = timeMs + 900 + Math.random() * 1300;
             }
 
             if (faceData.blinking) {
-                faceData.blinkProgress -= 0.14;
+                faceData.blinkProgress -= 0.055;
                 if (faceData.blinkProgress <= 0) {
                     faceData.blinking = false;
                     faceData.blinkProgress = 0;
                 }
             }
 
-            const eyeOpen = faceData.blinking ? Math.max(0.08, faceData.blinkProgress) : 1;
+            // 放慢眨动过程，保证肉眼可见
+            const eyeOpen = faceData.blinking ? Math.max(0.05, faceData.blinkProgress) : 1;
 
-            const gradient = ctx.createLinearGradient(0, 0, w, h);
-            gradient.addColorStop(0, palette.top);
-            gradient.addColorStop(1, palette.bottom);
-            ctx.fillStyle = gradient;
+            // 正面底色与方块保持一致，避免“正面和其他面颜色不一样”
+            ctx.fillStyle = palette.top;
             ctx.fillRect(0, 0, w, h);
 
-            ctx.fillStyle = 'rgba(255,255,255,0.14)';
-            ctx.fillRect(10, 12, w - 20, 20);
+            // 冰蓝竖向椭圆眼（与漩涡线条同色相）
+            const eyeCenterY = 37;
+            const eyeRx = 5.8;
+            const eyeRy = Math.max(1.4, 10.8 * eyeOpen);
+            const leftEyeX = 32;
+            const rightEyeX = w - 32;
 
-            ctx.fillStyle = '#ffffff';
-            const eyeWidth = 18;
-            const eyeHeight = Math.max(4, Math.floor(14 * eyeOpen));
-            const eyeY = 30 + Math.floor((14 - eyeHeight) / 2);
-            ctx.fillRect(26, eyeY, eyeWidth, eyeHeight);
-            ctx.fillRect(w - 26 - eyeWidth, eyeY, eyeWidth, eyeHeight);
+            // 与漩涡线条 ice 颜色一致：rgb(170, 220, 255)
+            ctx.fillStyle = 'rgba(170, 220, 255, 1)';
+            ctx.strokeStyle = 'rgba(225, 245, 255, 1)';
+            ctx.lineWidth = 1.4;
+            ctx.shadowColor = 'rgba(170, 220, 255, 0.75)';
+            ctx.shadowBlur = 5;
+
+            const drawEye = (cx) => {
+                ctx.beginPath();
+                ctx.ellipse(cx, eyeCenterY, eyeRx, eyeRy, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                // 眼睛高光
+                ctx.fillStyle = 'rgba(245,254,255,0.75)';
+                ctx.beginPath();
+                ctx.ellipse(cx - 1.8, eyeCenterY - Math.min(eyeRy * 0.4, 2.2), 1.5, Math.max(0.8, eyeRy * 0.22), 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = 'rgba(170, 220, 255, 1)';
+            };
+
+            drawEye(leftEyeX);
+            drawEye(rightEyeX);
+
+            // 闭眼时仅在眼区加轻微眼睑压暗，避免整面出现色块
+            const lidAlpha = (1 - eyeOpen) * 0.45;
+            if (lidAlpha > 0.01) {
+                ctx.fillStyle = `rgba(88, 164, 202, ${lidAlpha.toFixed(3)})`;
+                ctx.beginPath();
+                ctx.ellipse(leftEyeX, eyeCenterY - 1, eyeRx + 3, 4.2, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.ellipse(rightEyeX, eyeCenterY - 1, eyeRx + 3, 4.2, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // 重置阴影，避免影响同一画布的后续绘制
+            ctx.shadowBlur = 0;
 
             texture.needsUpdate = true;
         }
@@ -1390,7 +1468,22 @@
             // 边界判定与可视圆环保持一致：由几何内外半径推导环中心半径和管半径
             const ringRadius = (innerRadius + outerRadius) * 0.5;
             const tubeRadius = (outerRadius - innerRadius) * 0.5;
-            obstacle.userData.collider = { type: 'torus', ringRadius, tubeRadius, isArch: true };
+            // 视觉上圆环是“前后双面薄环”，因此额外记录深度半厚度，避免Z向碰撞过厚
+            const depthHalf = Math.max(
+                Math.abs(frontA.position.z),
+                Math.abs(frontB.position.z),
+                Math.abs(backA.position.z),
+                Math.abs(backB.position.z)
+            ) + 0.015;
+            obstacle.userData.collider = {
+                type: 'torus',
+                ringRadius,
+                tubeRadius,
+                innerRadius,
+                outerRadius,
+                depthHalf,
+                isArch: true
+            };
             obstacle.userData.type = 'donut';
             obstacle.userData.ringTextureA = ringTextureA;
             obstacle.userData.ringTextureB = ringTextureB;
@@ -1402,14 +1495,22 @@
         }
 
         function createFaceBlockObstacle(obstacle) {
-            const baseColors = [0x6879d8, 0x4f65c0, 0x7487df, 0x4257ae, 0x5c72cb, 0x4a61b6];
+            const baseColors = [0x5c72cb, 0x5c72cb, 0x5c72cb, 0x5c72cb, 0x5c72cb, 0x5c72cb];
             const faceCanvas = document.createElement('canvas');
             faceCanvas.width = 96;
             faceCanvas.height = 96;
             const faceCtx = faceCanvas.getContext('2d');
             const faceTexture = new THREE.CanvasTexture(faceCanvas);
 
-            const palette = { top: '#7f90e8', bottom: '#465db2' };
+            const solidCanvas = document.createElement('canvas');
+            solidCanvas.width = 96;
+            solidCanvas.height = 96;
+            const solidCtx = solidCanvas.getContext('2d');
+            solidCtx.fillStyle = '#5c72cb';
+            solidCtx.fillRect(0, 0, solidCanvas.width, solidCanvas.height);
+            const solidTexture = new THREE.CanvasTexture(solidCanvas);
+
+            const palette = { top: '#5c72cb', bottom: '#5c72cb' };
             drawBlinkFace({
                 canvas: faceCanvas,
                 ctx: faceCtx,
@@ -1421,12 +1522,60 @@
             }, 0);
 
             const mats = [
-                new THREE.MeshStandardMaterial({ color: baseColors[0], roughness: 0.35, metalness: 0.2 }),
-                new THREE.MeshStandardMaterial({ color: baseColors[1], roughness: 0.35, metalness: 0.2 }),
-                new THREE.MeshStandardMaterial({ color: baseColors[2], roughness: 0.35, metalness: 0.2 }),
-                new THREE.MeshStandardMaterial({ color: baseColors[3], roughness: 0.35, metalness: 0.2 }),
-                new THREE.MeshStandardMaterial({ map: faceTexture, roughness: 0.3, metalness: 0.15 }),
-                new THREE.MeshStandardMaterial({ color: baseColors[5], roughness: 0.35, metalness: 0.2 })
+                new THREE.MeshStandardMaterial({
+                    color: baseColors[0],
+                    map: solidTexture,
+                    roughness: 0.22,
+                    metalness: 0.08,
+                    emissive: 0xaadcff,
+                    emissiveMap: solidTexture,
+                    emissiveIntensity: 0.9
+                }),
+                new THREE.MeshStandardMaterial({
+                    color: baseColors[1],
+                    map: solidTexture,
+                    roughness: 0.22,
+                    metalness: 0.08,
+                    emissive: 0xaadcff,
+                    emissiveMap: solidTexture,
+                    emissiveIntensity: 0.9
+                }),
+                new THREE.MeshStandardMaterial({
+                    color: baseColors[2],
+                    map: solidTexture,
+                    roughness: 0.22,
+                    metalness: 0.08,
+                    emissive: 0xaadcff,
+                    emissiveMap: solidTexture,
+                    emissiveIntensity: 0.9
+                }),
+                new THREE.MeshStandardMaterial({
+                    color: baseColors[3],
+                    map: solidTexture,
+                    roughness: 0.22,
+                    metalness: 0.08,
+                    emissive: 0xaadcff,
+                    emissiveMap: solidTexture,
+                    emissiveIntensity: 0.9
+                }),
+                new THREE.MeshStandardMaterial({
+                    color: baseColors[4],
+                    map: faceTexture,
+                    roughness: 0.22,
+                    metalness: 0.08,
+                    emissive: 0xaadcff,
+                    emissiveMap: faceTexture,
+                    emissiveIntensity: 0.9
+                }),
+                new THREE.MeshStandardMaterial({
+                    color: baseColors[5],
+                    map: solidTexture,
+                    roughness: 0.22,
+                    metalness: 0.08,
+                    emissive: 0xaadcff,
+                    emissiveMap: solidTexture,
+                    emissiveIntensity: 0.9
+                })
             ];
 
             const block = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mats);
@@ -1438,7 +1587,7 @@
                 ctx: faceCtx,
                 texture: faceTexture,
                 palette,
-                nextBlinkAt: 900 + Math.random() * 2400,
+                nextBlinkAt: 650 + Math.random() * 1500,
                 blinking: false,
                 blinkProgress: 0
             };
@@ -1564,6 +1713,69 @@
         function generateObjects(startZ, segmentLength) {
             const columns = [-4.5, -1.5, 1.5, 4.5];
             const availableColumns = [...columns];
+            let spawnedObstacleCount = 0;
+            const segmentCollectibleSpots = [];
+            const collectibleMinRowGap = 4.2;
+            const collectibleNearRowGap = 6.2;
+            const collectibleMinXGapWhenNearRow = 2.2;
+
+            const canPlaceCollectibleAt = (x, z, { allowObstacleOverlap = false } = {}) => {
+                if (z >= -15) return false;
+
+                // 与障碍物保持基本安全距离
+                if (!allowObstacleOverlap) {
+                    for (const obstacle of obstacles) {
+                        if (Math.abs(z - obstacle.position.z) < 3.2) {
+                            return false;
+                        }
+                    }
+                }
+
+                // 同一路段内：避免两个积分几乎在同一“水平排”导致无法同时收集
+                for (const spot of segmentCollectibleSpots) {
+                    const dz = Math.abs(z - spot.z);
+                    const dx = Math.abs(x - spot.x);
+
+                    // 前后太接近，直接禁止
+                    if (dz < collectibleMinRowGap) {
+                        return false;
+                    }
+
+                    // 前后较近时，若横向也近则同样禁止
+                    if (dz < collectibleNearRowGap && dx < collectibleMinXGapWhenNearRow) {
+                        return false;
+                    }
+                }
+
+                return true;
+            };
+
+            const createCollectibleAt = (
+                x,
+                z,
+                y = 1,
+                baseScale = 1.2,
+                fadeStartZ = -66,
+                fadeEndZ = -26,
+                options = {}
+            ) => {
+                if (!canPlaceCollectibleAt(x, z, options)) {
+                    return null;
+                }
+                const collectible = createCollectible();
+                collectible.userData.finalY = y;
+                collectible.userData.fadeStartZ = fadeStartZ;
+                collectible.userData.fadeEndZ = fadeEndZ;
+                collectible.userData.baseScale = baseScale;
+                collectible.userData.collected = false;
+                collectible.position.set(x, y, z);
+                collectible.scale.set(baseScale, baseScale, baseScale);
+                collectibles.push(collectible);
+                scene.add(collectible);
+                segmentCollectibleSpots.push({ x, z });
+                currentLevelCollectibleSpawned++;
+                return collectible;
+            };
 
             // 根据关卡计算障碍物生成概率（关卡越高，概率越高）
             const obstacleChance = Math.min(0.98, 0.7 + (game.level - 1) * 0.08);
@@ -1593,13 +1805,31 @@
                             const obstacle = createObstacle(true);
                             obstacle.position.set(x, obstacle.userData.hiddenY, z);
                             if (obstacle.userData.type === 'donut') {
-                                // 保持正圆：甜甜圈使用等比缩放，避免被拉成椭圆
-                                obstacle.scale.setScalar(2.7);
+                                // 恢复正圆：使用等比缩放
+                                obstacle.scale.setScalar(1.88);
                             } else {
                                 obstacle.scale.set(4, 2, 2);
                             }
                             obstacles.push(obstacle);
                             scene.add(obstacle);
+                            spawnedObstacleCount++;
+
+                            // 允许积分出现在圆环中间（圆环中心孔）
+                            if (obstacle.userData.type === 'donut') {
+                                const ringCenterY = obstacle.userData.finalY ?? 2.55;
+                                const ringCollectibleChance = game.level >= 3 ? 0.65 : 0.5;
+                                if (Math.random() < ringCollectibleChance) {
+                                    createCollectibleAt(
+                                        x,
+                                        z + (Math.random() - 0.5) * 0.6,
+                                        ringCenterY,
+                                        1.1,
+                                        -72,
+                                        -28,
+                                        { allowObstacleOverlap: true }
+                                    );
+                                }
+                            }
                         }
                     } else {
                         const index = Math.floor(Math.random() * availableColumns.length);
@@ -1619,8 +1849,60 @@
                             }
                             obstacles.push(obstacle);
                             scene.add(obstacle);
+                            spawnedObstacleCount++;
                         }
                     }
+                }
+            }
+
+            // 障碍物保底：避免出现长段路一个障碍都没有
+            if (spawnedObstacleCount === 0) {
+                const forcedZ = Math.min(-22, startZ - segmentLength * (0.58 + Math.random() * 0.16));
+                const forceWide = availableColumns.length >= 2 && Math.random() > 0.45;
+                let forcedX = 0;
+
+                if (forceWide) {
+                    const src = availableColumns.length >= 2 ? availableColumns : columns;
+                    const index = Math.floor(Math.random() * (src.length - 1));
+                    const x1 = src[index];
+                    const x2 = src[index + 1];
+                    forcedX = (x1 + x2) / 2;
+                } else {
+                    const src = availableColumns.length > 0 ? availableColumns : columns;
+                    const index = Math.floor(Math.random() * src.length);
+                    forcedX = src[index];
+                }
+
+                const forcedObstacle = createObstacle(forceWide);
+                forcedObstacle.position.set(forcedX, forcedObstacle.userData.hiddenY, forcedZ);
+                if (forceWide) {
+                    if (forcedObstacle.userData.type === 'donut') {
+                        forcedObstacle.scale.setScalar(1.88);
+                    } else {
+                        forcedObstacle.scale.set(4, 2, 2);
+                    }
+                } else {
+                    forcedObstacle.scale.set(2, 2, 2);
+                    if (forcedObstacle.userData.type === 'vortex') {
+                        const sizeFactor = forcedObstacle.userData.sizeFactor || 1;
+                        forcedObstacle.scale.multiplyScalar(sizeFactor);
+                    }
+                }
+                obstacles.push(forcedObstacle);
+                scene.add(forcedObstacle);
+
+                // 保底障碍如果是圆环，也给一个中心积分机会
+                if (forcedObstacle.userData.type === 'donut' && Math.random() < 0.72) {
+                    const ringCenterY = forcedObstacle.userData.finalY ?? 2.55;
+                    createCollectibleAt(
+                        forcedX,
+                        forcedZ + (Math.random() - 0.5) * 0.5,
+                        ringCenterY,
+                        1.1,
+                        -72,
+                        -28,
+                        { allowObstacleOverlap: true }
+                    );
                 }
             }
 
@@ -1642,30 +1924,7 @@
 
                 // 积分放在路段中间，添加随机偏移
                 const z = startZ - segmentLength / 2 + (Math.random() - 0.5) * 3;
-
-                // 确保积分不会生成在小球初始位置附近，距离更远
-                if (z < -15) {
-                    // 检查积分位置是否与障碍物重叠（减小安全距离，增加积分生成机会）
-                    let isOverlap = false;
-                    obstacles.forEach(obstacle => {
-                        const obsZ = obstacle.position.z;
-                        if (Math.abs(z - obsZ) < 1.5) { // 1.5 是安全距离，比之前的2更小
-                            isOverlap = true;
-                        }
-                    });
-
-                    if (!isOverlap) {
-                        const collectible = createCollectible();
-                        collectible.userData.finalY = 1;
-                        collectible.userData.fadeStartZ = -66;
-                        collectible.userData.fadeEndZ = -26;
-                        collectible.userData.baseScale = 1.2;
-                        collectible.position.set(x, collectible.userData.finalY, z);
-                        collectible.scale.set(1.2, 1.2, 1.2);
-                        collectibles.push(collectible);
-                        scene.add(collectible);
-                    }
-                }
+                createCollectibleAt(x, z, 1, 1.2, -66, -26);
             }
 
             // 第四关及以上，额外增加积分生成机会
@@ -1690,30 +1949,7 @@
 
                 // 积分放在路段中，与第一个积分位置不同
                 const z = startZ - segmentLength / 2 + (Math.random() - 0.5) * 6;
-
-                // 确保积分不会生成在小球初始位置附近，距离更远
-                if (z < -15) {
-                    // 检查积分位置是否与障碍物重叠
-                    let isOverlap = false;
-                    obstacles.forEach(obstacle => {
-                        const obsZ = obstacle.position.z;
-                        if (Math.abs(z - obsZ) < 1.5) {
-                            isOverlap = true;
-                        }
-                    });
-
-                    if (!isOverlap) {
-                        const collectible = createCollectible();
-                        collectible.userData.finalY = 1;
-                        collectible.userData.fadeStartZ = -66;
-                        collectible.userData.fadeEndZ = -26;
-                        collectible.userData.baseScale = 1.2;
-                        collectible.position.set(x, collectible.userData.finalY, z);
-                        collectible.scale.set(1.2, 1.2, 1.2);
-                        collectibles.push(collectible);
-                        scene.add(collectible);
-                    }
-                }
+                createCollectibleAt(x, z, 1, 1.2, -66, -26);
             }
         }
 
@@ -1746,7 +1982,8 @@
             }
 
             obstacle.userData.isArch = obstacle.userData.type === 'donut';
-            obstacle.userData.finalY = 1;
+            // donut 抬高到完整正圆近乎贴地可见，下半圈不再被地面吞没
+            obstacle.userData.finalY = obstacle.userData.type === 'donut' ? 2.55 : 1;
             obstacle.userData.hiddenY = -1.2;
             return obstacle;
         }
@@ -1881,7 +2118,7 @@
         }
 
         // 处理移动
-        function handleMovement() {
+        function handleMovement(stepScale = 1) {
             if (game.gameOver) return;
 
             let moveX = 0;
@@ -1893,6 +2130,18 @@
             // 边界限制
             const halfRoad = config.roadWidth / 2 - 0.5;
             ball.position.x = Math.max(-halfRoad, Math.min(halfRoad, ball.position.x));
+
+            // 跳跃与重力（仅单段跳：只有落地后 isGrounded=true 才允许再次起跳）
+            if (!isGrounded || verticalVelocity > 0) {
+                verticalVelocity -= config.jumpGravity * stepScale;
+                ball.position.y += verticalVelocity * stepScale;
+
+                if (ball.position.y <= config.groundY) {
+                    ball.position.y = config.groundY;
+                    verticalVelocity = 0;
+                    isGrounded = true;
+                }
+            }
         }
 
         // 更新道路
@@ -2052,6 +2301,9 @@
                     }
                 });
                 if (collectibles[i].position.z > 10) {
+                    if (!collectibles[i].userData.collected) {
+                        currentLevelCollectibleMissed++;
+                    }
                     scene.remove(collectibles[i]);
                     collectibles.splice(i, 1);
                 }
@@ -2078,6 +2330,7 @@
         // 碰撞检测
         function checkCollisions() {
             if (game.gameOver) return;
+            if (performance.now() < reviveInvincibleUntilMs) return;
 
             // 小球的边界球半径
             const ballRadius = ball.userData.radius || 0.5;
@@ -2145,29 +2398,43 @@
                         collisionDetected = true;
                     }
                 } else if (collider.type === 'torus') {
-                    // 优化圆环边界判定：分别计算环平面径向和厚度方向的归一化距离
-                    // 对非等比缩放也更稳定，减少中空区域误判和边缘“幽灵碰撞”
-                    const ringScale = Math.max(scale.x, scale.y);
-                    const depthScale = Math.max(0.0001, scale.z);
+                    // 与可视几何对齐：将donut判定为“环形薄片(annulus) + 有限厚度”
+                    // 这样在看到环边缘接触时更容易同步触发碰撞，减少幽灵碰撞/漏判
+                    const radialScale = Math.max(1e-6, (Math.abs(scale.x) + Math.abs(scale.y)) * 0.5);
+                    const depthScale = Math.max(1e-6, Math.abs(scale.z));
 
-                    const torusRadius = collider.ringRadius * ringScale;
-                    const tubeRadiusRadial = collider.tubeRadius * ringScale;
-                    const tubeRadiusDepth = collider.tubeRadius * depthScale;
+                    const rawInnerRadius = (collider.innerRadius ?? (collider.ringRadius - collider.tubeRadius)) * radialScale;
+                    const outerRadius = (collider.outerRadius ?? (collider.ringRadius + collider.tubeRadius)) * radialScale;
+                    const depthHalf = (collider.depthHalf ?? collider.tubeRadius) * depthScale;
+                    // 内圈容错：适当扩大可穿越孔洞，降低“贴内边就判死”
+                    const innerBoundaryForgiveness = Math.min(0.16, rawInnerRadius * 0.14);
+                    const innerRadius = Math.min(outerRadius - 0.02, rawInnerRadius + innerBoundaryForgiveness);
 
                     const dx = ballPosition.x - position.x;
                     const dy = ballPosition.y - position.y;
-                    const radialDistance = Math.sqrt(dx * dx + dy * dy);
-                    const radialDelta = Math.abs(radialDistance - torusRadius);
+                    const radialDistance = Math.hypot(dx, dy);
                     const dz = Math.abs(ballPosition.z - position.z);
 
-                    const radialLimit = tubeRadiusRadial + ballRadius;
-                    const depthLimit = tubeRadiusDepth + ballRadius;
+                    let radialGap = 0;
+                    if (radialDistance < innerRadius) {
+                        // 对“从孔洞擦边通过”再加一层缓冲，减少内圈瞬时误判
+                        const innerPassSlack = Math.min(0.18, innerRadius * 0.16);
+                        radialGap = Math.max(0, innerRadius - radialDistance - innerPassSlack);
+                    } else if (radialDistance > outerRadius) {
+                        radialGap = radialDistance - outerRadius;
+                    }
 
-                    const normalized =
-                        Math.pow(radialDelta / Math.max(radialLimit, 1e-6), 2) +
-                        Math.pow(dz / Math.max(depthLimit, 1e-6), 2);
+                    // 优化前后边界：缩小Z向有效厚度，减少“刚起跳就死”
+                    const frontBackForgiveness = Math.min(0.16, depthHalf * 0.62);
+                    const effectiveDepthHalf = Math.max(0.01, depthHalf - frontBackForgiveness);
+                    const depthGap = Math.max(0, dz - effectiveDepthHalf);
+                    const surfaceDistanceSq = radialGap * radialGap + depthGap * depthGap;
+                    // 圆环判定增加轻微容错，降低“贴边就判死”的卡手感
+                    const torusForgiveness = 0.085;
+                    const torusCollideRadius = Math.max(0.01, ballRadius - torusForgiveness);
+                    const collideRadiusSq = torusCollideRadius * torusCollideRadius;
 
-                    if (normalized < 1) {
+                    if (surfaceDistanceSq <= collideRadiusSq) {
                         collisionDetected = true;
                     }
                 } else {
@@ -2218,6 +2485,8 @@
                 // 只要两个球体表面接触即算收集
                 if (distance < ballRadius + collectibleRadius) {
                     game.score += 10;  // 改回10分
+                    currentLevelCollectibleCollected++;
+                    collectible.userData.collected = true;
                     document.getElementById('score').textContent = `分数: ${game.score}`;
                     spawnCollectibleBurst(collectible.position);
                     scene.remove(collectible);
@@ -2239,6 +2508,23 @@
             // 确保游戏未结束且分数达到目标
             if (game.score >= levels[game.level - 1].score && !game.gameOver) {
                 console.log('Level complete:', game.level, 'Score:', game.score, 'Target:', levels[game.level - 1].score);
+
+                const levelBonusTipEl = document.getElementById('level-bonus-tip');
+                const nearUncollectedCount = collectibles.filter(c => !c.userData.collected && c.position.z > -22).length;
+                const isGrandSlam = currentLevelCollectibleCollected > 0 &&
+                    currentLevelCollectibleMissed === 0 &&
+                    nearUncollectedCount === 0;
+                if (isGrandSlam && !perfectLevelsAchieved.has(game.level)) {
+                    reviveChances++;
+                    perfectLevelsAchieved.add(game.level);
+                    if (levelBonusTipEl) {
+                        levelBonusTipEl.innerHTML = '恭喜获得本关大满贯<br>获得复活机会一次';
+                        levelBonusTipEl.style.display = 'block';
+                    }
+                } else if (levelBonusTipEl) {
+                    levelBonusTipEl.style.display = 'none';
+                    levelBonusTipEl.textContent = '';
+                }
 
                 // 暂停游戏
                 game.gameStarted = false;
@@ -2301,6 +2587,11 @@
         // 进入下一关
         function nextLevel() {
             document.getElementById('level-complete').style.display = 'none';
+            const levelBonusTipEl = document.getElementById('level-bonus-tip');
+            if (levelBonusTipEl) {
+                levelBonusTipEl.style.display = 'none';
+                levelBonusTipEl.textContent = '';
+            }
             game.level++;
             if (game.level > levels.length) game.level = levels.length;
             // 重置分数，因为进入新关卡
@@ -2312,6 +2603,24 @@
 
         // 游戏结束
         function endGame() {
+            if (!game.gameOver && reviveChances > 0) {
+                const reviveModalEl = document.getElementById('revive-modal');
+                const reviveRemainingEl = document.getElementById('revive-remaining');
+                const remainAfterRevive = Math.max(0, reviveChances - 1);
+                if (reviveRemainingEl) {
+                    reviveRemainingEl.textContent = `${remainAfterRevive}`;
+                }
+                if (reviveModalEl) {
+                    reviveModalEl.style.display = 'block';
+                }
+
+                // 不点击继续时等效暂停；保留当前关卡与分数
+                game.paused = true;
+                game.gameStarted = false;
+                saveGameState();
+                return;
+            }
+
             game.gameOver = true;
             document.getElementById('final-score').textContent = game.score;
             document.getElementById('final-level').textContent = game.level;
@@ -2319,8 +2628,14 @@
             // 为第十关添加祝贺词
             const gameOverEl = document.getElementById('game-over');
             const h2El = gameOverEl.querySelector('h2');
+            const reviveModalEl = document.getElementById('revive-modal');
+            if (reviveModalEl) {
+                reviveModalEl.style.display = 'none';
+            }
 
-            if (game.level === levels.length) {
+            if (game.level === levels.length && hasPerfectGrandSlamFirstNine()) {
+                h2El.textContent = '恭喜获得mvp大满贯！！！';
+            } else if (game.level === levels.length) {
                 h2El.textContent = '恭喜完成挑战！';
             } else {
                 h2El.textContent = '游戏结束';
@@ -2337,16 +2652,38 @@
             document.getElementById('game-over').style.display = 'none';
             document.getElementById('level-complete').style.display = 'none';
             document.getElementById('pause-menu').style.display = 'none';
+            document.getElementById('revive-modal').style.display = 'none';
             game.level = 1;
             game.score = 0;
             game.gameStarted = false;
             game.gameOver = false;
             game.distance = 0;
             game.paused = false;
+            reviveChances = 0;
+            currentLevelCollectibleSpawned = 0;
+            currentLevelCollectibleCollected = 0;
+            currentLevelCollectibleMissed = 0;
+            reviveInvincibleUntilMs = 0;
+            perfectLevelsAchieved.clear();
             // 清除保存的游戏状态
             localStorage.removeItem('gameState');
             console.log('Game restarted, local storage cleared');
             initGameWithLoading({ text: '正在重建赛道...' });
+        }
+
+        function continueAfterRevive() {
+            if (reviveChances <= 0) return;
+
+            reviveChances--;
+            game.gameOver = false;
+            game.paused = false;
+            game.gameStarted = true;
+            reviveInvincibleUntilMs = performance.now() + 1300;
+
+            const reviveModalEl = document.getElementById('revive-modal');
+            if (reviveModalEl) {
+                reviveModalEl.style.display = 'none';
+            }
         }
 
         // 加载游戏状态
@@ -2462,7 +2799,8 @@
                 config.speed = fixedSpeed;
                 config.moveSpeed = fixedMoveSpeed;
 
-                handleMovement();
+                const stepScale = dt / config.fixedTimeStep;
+                handleMovement(stepScale);
                 updateRoad();
                 checkCollisions();
                 updateBallRollAndTrail(dt, currentTime * 0.001);
@@ -2474,9 +2812,15 @@
                 // 更新相机
                 // 移动端固定X轴视角，避免左右操作时道路出现晃动感
                 const camTargetX = 0;
-                const camTargetY = isMobile ? 6.4 : 5;
-                const camLookAtY = isMobile ? 0.85 : 0.5;
+                const baseCamTargetY = isMobile ? 6.4 : 5;
+                const baseCamLookAtY = isMobile ? 0.85 : 0.5;
                 const camZOffset = isMobile ? 11.8 : 10;
+
+                // 跳跃镜头上移：根据离地高度做平滑抬升，增强腾空视觉
+                const jumpHeight = Math.max(0, ball.position.y - config.groundY);
+                const jumpLift = Math.min(1.5, jumpHeight);
+                const camTargetY = baseCamTargetY + jumpLift * (isMobile ? 0.72 : 0.62);
+                const camLookAtY = baseCamLookAtY + jumpLift * 0.42;
 
                 camera.position.x += (camTargetX - camera.position.x) * 0.12;
                 camera.position.y += (camTargetY - camera.position.y) * 0.12;
@@ -2498,6 +2842,13 @@
             if (e.code === 'Space') {
                 e.preventDefault(); // 防止空格键默认行为
                 togglePause();
+            }
+
+            // W/↑ 跳跃（只能单段跳）
+            if ((e.code === 'KeyW' || e.code === 'ArrowUp') && game.gameStarted && !game.gameOver && !game.paused && isGrounded) {
+                e.preventDefault();
+                verticalVelocity = config.jumpVelocity;
+                isGrounded = false;
             }
         });
 
@@ -2597,4 +2948,4 @@
     </script>
 </body>
 
-</html>"<!-- 2026-04-10 update -->" 
+</html>
