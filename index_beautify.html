@@ -491,6 +491,43 @@
             return true;
         }
 
+        function disposeSceneResources(targetScene) {
+            if (!targetScene) return;
+
+            targetScene.traverse((object) => {
+                if (object.geometry) {
+                    object.geometry.dispose();
+                }
+
+                if (object.material) {
+                    const materials = Array.isArray(object.material) ? object.material : [object.material];
+                    materials.forEach((material) => {
+                        if (!material) return;
+
+                        [
+                            'map',
+                            'lightMap',
+                            'aoMap',
+                            'emissiveMap',
+                            'bumpMap',
+                            'normalMap',
+                            'displacementMap',
+                            'roughnessMap',
+                            'metalnessMap',
+                            'alphaMap',
+                            'envMap'
+                        ].forEach((key) => {
+                            if (material[key] && typeof material[key].dispose === 'function') {
+                                material[key].dispose();
+                            }
+                        });
+
+                        material.dispose();
+                    });
+                }
+            });
+        }
+
         function showModelLoading(text = '正在初始化场景...') {
             const loadingEl = document.getElementById('model-loading');
             const textEl = document.getElementById('model-loading-text');
@@ -576,6 +613,8 @@
                 animationId = null;
             }
 
+            lastTime = 0;
+
             // 加载保存的游戏状态
             loadGameState();
             console.log('Loaded game state:', game);
@@ -637,9 +676,19 @@
 
             // 清除旧场景
             if (renderer) {
-                document.body.removeChild(renderer.domElement);
+                const canvas = renderer.domElement;
+                if (scene) {
+                    disposeSceneResources(scene);
+                }
+                if (canvas && canvas.parentNode) {
+                    canvas.parentNode.removeChild(canvas);
+                }
                 renderer.dispose();
             }
+
+            scene = null;
+            camera = null;
+            renderer = null;
 
             // 创建场景
             scene = new THREE.Scene();
