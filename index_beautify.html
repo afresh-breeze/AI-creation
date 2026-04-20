@@ -3,9 +3,14 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>3D小球跑酷游戏</title>
     <style>
+        :root {
+            --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+            --viewport-bottom-gap: 0px;
+        }
+
         * {
             box-sizing: border-box;
         }
@@ -14,7 +19,7 @@
             margin: 0;
             padding: 0;
             overflow: hidden;
-            background-color: #111;
+            background: linear-gradient(180deg, #141b42 0%, #1a2352 42%, #2f3b74 100%);
             font-family: Arial, sans-serif;
         }
 
@@ -56,14 +61,72 @@
 
         /* 触摸控制区域 */
         #touch-area {
-            position: absolute;
+            position: fixed;
             bottom: 0;
             left: 0;
             width: 100%;
-            height: 150px;
-            background: rgba(255, 255, 255, 0.1);
+            height: calc(150px + var(--safe-area-bottom) + var(--viewport-bottom-gap));
+            background: linear-gradient(to top, rgba(41, 56, 116, 0.22), rgba(41, 56, 116, 0));
             z-index: 50;
             display: none;
+            pointer-events: none;
+        }
+
+        #mobile-jump-controls {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: calc(26px + var(--safe-area-bottom) + var(--viewport-bottom-gap));
+            z-index: 70;
+            pointer-events: none;
+            display: none;
+        }
+
+        body.mobile-controls-active #touch-area {
+            display: block;
+            pointer-events: auto;
+        }
+
+        body.mobile-controls-active #mobile-jump-controls {
+            display: block;
+        }
+
+        @supports (bottom: constant(safe-area-inset-bottom)) {
+            :root {
+                --safe-area-bottom: constant(safe-area-inset-bottom);
+            }
+        }
+
+        .jump-btn {
+            position: absolute;
+            width: 68px;
+            height: 68px;
+            border-radius: 50%;
+            border: 1px solid rgba(174, 224, 255, 0.6);
+            background: radial-gradient(circle at 30% 30%, rgba(97, 193, 255, 0.96), rgba(35, 84, 166, 0.84));
+            color: #eaf8ff;
+            font-size: 14px;
+            font-weight: 600;
+            box-shadow: 0 8px 18px rgba(6, 16, 45, 0.38), inset 0 0 12px rgba(198, 236, 255, 0.22);
+            pointer-events: auto;
+            user-select: none;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+            backdrop-filter: blur(3px);
+            -webkit-backdrop-filter: blur(3px);
+        }
+
+        .jump-btn:active {
+            transform: translateY(1px) scale(0.96);
+            box-shadow: 0 5px 12px rgba(6, 16, 45, 0.35), inset 0 0 10px rgba(198, 236, 255, 0.2);
+        }
+
+        #jump-left {
+            left: 16px;
+        }
+
+        #jump-right {
+            right: 16px;
         }
 
         /* 响应式设计 */
@@ -93,9 +156,10 @@
                 right: 5px;
             }
 
-            /* 显示触摸控制区域 */
-            #touch-area {
-                display: block;
+            .jump-btn {
+                width: 64px;
+                height: 64px;
+                font-size: 13px;
             }
         }
 
@@ -290,6 +354,10 @@
 
     <!-- 触摸控制区域 -->
     <div id="touch-area"></div>
+    <div id="mobile-jump-controls" aria-label="移动端跳跃按钮">
+        <button id="jump-left" class="jump-btn" type="button" aria-label="左侧跳跃">跳跃</button>
+        <button id="jump-right" class="jump-btn" type="button" aria-label="右侧跳跃">跳跃</button>
+    </div>
 
     <div id="game-over">
         <h2>游戏结束</h2>
@@ -324,8 +392,8 @@
             </div>
             <div id="rules-mobile" style="display: none;">
                 <p>1. 在屏幕下方左右滑动控制小球</p>
-                <p>2. 点击屏幕上方任意位置暂停游戏</p>
-                <p>3. 外接键盘可用 W/↑ 键跳跃</p>
+                <p>2. 点击左下角或右下角“跳跃”按钮起跳</p>
+                <p>3. 点击屏幕上方任意位置暂停游戏</p>
                 <p>4. 收集星光积分</p>
                 <p>5. 达到目标分数升级关卡</p>
                 <p>6. 撞到障碍物游戏结束</p>
@@ -359,10 +427,17 @@
         const deviceMemoryGB = navigator.deviceMemory || 0;
         const hardwareThreads = navigator.hardwareConcurrency || 4;
     const memoryKnown = deviceMemoryGB > 0;
+        const emergenceStartZ = -72;
+        const emergenceEndZ = -30;
         let mobilePixelRatioCap = 1.45;
         let mobileAnisotropyCap = 2;
         let enableMobileAntialias = false;
         let textureAnisotropyLevel = 1;
+        let lastResizeWidth = window.innerWidth;
+        let lastResizeHeight = window.innerHeight;
+        let currentRenderPixelRatio = 1;
+        let viewportSyncRafId = 0;
+        let pendingPixelRatioRefresh = false;
 
         function updateMobileRenderTuning() {
             if (!isMobile) {
@@ -382,15 +457,15 @@
                 (!memoryKnown && hardwareThreads >= 8);
 
             if (highEnd && dpr >= 2.2 && shortEdge >= 390) {
-                mobilePixelRatioCap = 1.52;
-                mobileAnisotropyCap = 3;
-                enableMobileAntialias = true;
-            } else if (mediumEnd) {
-                mobilePixelRatioCap = 1.42;
+                mobilePixelRatioCap = 1.35;
                 mobileAnisotropyCap = 2;
                 enableMobileAntialias = false;
+            } else if (mediumEnd) {
+                mobilePixelRatioCap = 1.25;
+                mobileAnisotropyCap = 1;
+                enableMobileAntialias = false;
             } else {
-                mobilePixelRatioCap = 1.32;
+                mobilePixelRatioCap = 1.15;
                 mobileAnisotropyCap = 1;
                 enableMobileAntialias = false;
             }
@@ -398,6 +473,61 @@
 
         function getRenderPixelRatioCap() {
             return isMobile ? mobilePixelRatioCap : 2;
+        }
+
+        function getViewportDimensions() {
+            const vv = window.visualViewport;
+            if (vv) {
+                return {
+                    width: Math.max(1, Math.round(vv.width)),
+                    height: Math.max(1, Math.round(vv.height))
+                };
+            }
+
+            return {
+                width: Math.max(1, window.innerWidth),
+                height: Math.max(1, window.innerHeight)
+            };
+        }
+
+        function applyRendererViewport({ refreshPixelRatio = false } = {}) {
+            if (!camera || !renderer) return;
+
+            const viewport = getViewportDimensions();
+            camera.aspect = viewport.width / viewport.height;
+            camera.updateProjectionMatrix();
+
+            if (refreshPixelRatio || !currentRenderPixelRatio) {
+                updateMobileRenderTuning();
+                currentRenderPixelRatio = Math.min(window.devicePixelRatio || 1, getRenderPixelRatioCap());
+                renderer.setPixelRatio(currentRenderPixelRatio);
+            }
+
+            renderer.setSize(viewport.width, viewport.height, false);
+            renderer.domElement.style.width = `${viewport.width}px`;
+            renderer.domElement.style.height = `${viewport.height}px`;
+
+            lastResizeWidth = viewport.width;
+            lastResizeHeight = viewport.height;
+        }
+
+        function scheduleViewportSync({ refreshPixelRatio = false } = {}) {
+            pendingPixelRatioRefresh = pendingPixelRatioRefresh || refreshPixelRatio;
+            if (viewportSyncRafId) return;
+
+            viewportSyncRafId = requestAnimationFrame(() => {
+                applyRendererViewport({ refreshPixelRatio: pendingPixelRatioRefresh });
+                pendingPixelRatioRefresh = false;
+                viewportSyncRafId = 0;
+            });
+        }
+
+        function getEmergenceProgress(z) {
+            return Math.max(0, Math.min(1, (z - emergenceStartZ) / (emergenceEndZ - emergenceStartZ)));
+        }
+
+        function smoothstep01(t) {
+            return t * t * (3 - 2 * t);
         }
 
         function applyTextureClarity(texture, { isDynamic = false } = {}) {
@@ -471,7 +601,7 @@
     let isGrounded = true;
         let roadMaterial = null;
         let vortexTexturePool = [];
-    const mobileFaceRefreshIntervalMs = 90;
+    const mobileFaceRefreshIntervalMs = 130;
         let modelLoadingShownAt = 0;
         const minLoadingVisibleMs = isMobile ? 520 : 260;
         const loadingAppearDelayMs = isMobile ? 260 : 180;
@@ -597,6 +727,7 @@
                             if (startScreen) {
                                 startScreen.style.display = 'none';
                             }
+                            updateMobileControlsVisibility();
                         }
                     } finally {
                         hideModelLoading();
@@ -698,7 +829,8 @@
             addBackgroundStars();
 
             // 创建相机
-            const aspect = window.innerWidth / window.innerHeight;
+            const viewport = getViewportDimensions();
+            const aspect = viewport.width / viewport.height;
             const fov = isMobile ? 85 : 75; // 手机端使用更大的视场角
             camera = new THREE.PerspectiveCamera(fov, aspect, 0.1, 1000);
             camera.position.set(0, isMobile ? 6.4 : 5, isMobile ? 11.8 : 10);
@@ -708,8 +840,8 @@
                 antialias: !isMobile || enableMobileAntialias,
                 powerPreference: 'high-performance'
             });
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, getRenderPixelRatioCap()));
-            renderer.setSize(window.innerWidth, window.innerHeight);
+            currentRenderPixelRatio = 0;
+            applyRendererViewport({ refreshPixelRatio: true });
             renderer.toneMapping = THREE.LinearToneMapping;
             renderer.toneMappingExposure = 1.0;
             renderer.outputEncoding = THREE.sRGBEncoding;
@@ -748,6 +880,7 @@
             document.getElementById('start-screen').style.display = 'block';
             document.getElementById('game-over').style.display = 'none';
             document.getElementById('level-complete').style.display = 'none';
+            updateMobileControlsVisibility();
 
             // 开始动画
             animate(performance.now());
@@ -756,7 +889,7 @@
         // 添加背景星星效果
         function addBackgroundStars() {
             const starsGeometry = new THREE.BufferGeometry();
-            const starsCount = isMobile ? 220 : 1000;
+            const starsCount = isMobile ? 150 : 1000;
 
             const positions = new Float32Array(starsCount * 3);
             const colors = new Float32Array(starsCount * 3);
@@ -1208,7 +1341,7 @@
 
         function createVortexTexture() {
             const canvas = document.createElement('canvas');
-            const vortexTexSize = isMobile ? 640 : 1024;
+            const vortexTexSize = isMobile ? 512 : 1024;
             canvas.width = vortexTexSize;
             canvas.height = vortexTexSize;
             const ctx = canvas.getContext('2d');
@@ -1243,7 +1376,7 @@
                 const startR = maxR - (spanBase * (0.08 + uBand * 0.82));
                 const endR = Math.max(rInner, startR - span);
 
-                const steps = isMobile ? 760 : 1200;
+                const steps = isMobile ? 520 : 1200;
                 ctx.lineCap = 'round';
                 ctx.lineJoin = 'round';
 
@@ -1353,7 +1486,7 @@
 
         function createVortexRingTexture({ reverse = false, phaseOffset = 0 } = {}) {
             const canvas = document.createElement('canvas');
-            const texSize = isMobile ? 640 : 1024;
+            const texSize = isMobile ? 512 : 1024;
             canvas.width = texSize;
             canvas.height = texSize;
             const ctx = canvas.getContext('2d');
@@ -1378,7 +1511,7 @@
 
             const lineCount = 2; // 每层2条，两层共4条
             const turnsByLine = reverse ? [3.9, 3.05] : [3.35, 4.25]; // 线条长度不同，整体更紧凑
-            const steps = isMobile ? 500 : 740;
+            const steps = isMobile ? 360 : 740;
             const baseWidth = isMobile ? 7.1 : 8.5; // 稍微加粗
             const direction = reverse ? -1 : 1;
 
@@ -1804,8 +1937,8 @@
                 z,
                 y = 1,
                 baseScale = 1.2,
-                fadeStartZ = -66,
-                fadeEndZ = -26,
+                fadeStartZ = emergenceStartZ,
+                fadeEndZ = emergenceEndZ,
                 options = {}
             ) => {
                 if (!canPlaceCollectibleAt(x, z, options)) {
@@ -1813,11 +1946,12 @@
                 }
                 const collectible = createCollectible();
                 collectible.userData.finalY = y;
+                collectible.userData.hiddenY = -1.8;
                 collectible.userData.fadeStartZ = fadeStartZ;
                 collectible.userData.fadeEndZ = fadeEndZ;
                 collectible.userData.baseScale = baseScale;
                 collectible.userData.collected = false;
-                collectible.position.set(x, y, z);
+                collectible.position.set(x, collectible.userData.hiddenY, z);
                 collectible.scale.set(baseScale, baseScale, baseScale);
                 collectibles.push(collectible);
                 scene.add(collectible);
@@ -1873,8 +2007,8 @@
                                         z + (Math.random() - 0.5) * 0.6,
                                         ringCenterY,
                                         1.1,
-                                        -72,
-                                        -28,
+                                        emergenceStartZ,
+                                        emergenceEndZ,
                                         { allowObstacleOverlap: true }
                                     );
                                 }
@@ -1948,8 +2082,8 @@
                         forcedZ + (Math.random() - 0.5) * 0.5,
                         ringCenterY,
                         1.1,
-                        -72,
-                        -28,
+                        emergenceStartZ,
+                        emergenceEndZ,
                         { allowObstacleOverlap: true }
                     );
                 }
@@ -1973,7 +2107,7 @@
 
                 // 积分放在路段中间，添加随机偏移
                 const z = startZ - segmentLength / 2 + (Math.random() - 0.5) * 3;
-                createCollectibleAt(x, z, 1, 1.2, -66, -26);
+                createCollectibleAt(x, z, 1, 1.2, emergenceStartZ, emergenceEndZ);
             }
 
             // 第四关及以上，额外增加积分生成机会
@@ -1998,7 +2132,7 @@
 
                 // 积分放在路段中，与第一个积分位置不同
                 const z = startZ - segmentLength / 2 + (Math.random() - 0.5) * 6;
-                createCollectibleAt(x, z, 1, 1.2, -66, -26);
+                createCollectibleAt(x, z, 1, 1.2, emergenceStartZ, emergenceEndZ);
             }
         }
 
@@ -2112,7 +2246,8 @@
             // 白色光效：小范围柔光粒子环绕，不做包裹球
             const sparkleTexture = createSoftSparkleTexture();
             const sparkles = [];
-            for (let i = 0; i < 6; i++) {
+            const sparkleCount = isMobile ? 4 : 6;
+            for (let i = 0; i < sparkleCount; i++) {
                 const sparkle = new THREE.Sprite(
                     new THREE.SpriteMaterial({
                         map: sparkleTexture,
@@ -2133,6 +2268,12 @@
                 sparkles.push(sparkle);
             }
             star.userData.sparkles = sparkles;
+            star.userData.opacityNodes = [];
+            star.traverse((node) => {
+                if (node.material && typeof node.material.opacity === 'number') {
+                    star.userData.opacityNodes.push(node);
+                }
+            });
 
             star.userData.collectibleRadius = 0.26;
             return star;
@@ -2140,7 +2281,7 @@
 
         function spawnCollectibleBurst(position) {
             const burst = new THREE.Group();
-            const count = 10;
+            const count = isMobile ? 7 : 10;
             for (let i = 0; i < count; i++) {
                 const ray = new THREE.Mesh(
                     new THREE.BoxGeometry(0.04, 0.3 + Math.random() * 0.2, 0.04),
@@ -2239,9 +2380,9 @@
             // 移动障碍物
             for (let i = obstacles.length - 1; i >= 0; i--) {
                 obstacles[i].position.z += config.speed;
-                const riseStartZ = -72;
-                const riseEndZ = -30;
-                const progress = Math.max(0, Math.min(1, (obstacles[i].position.z - riseStartZ) / (riseEndZ - riseStartZ)));
+                const riseStartZ = emergenceStartZ;
+                const riseEndZ = emergenceEndZ;
+                const progress = smoothstep01(Math.max(0, Math.min(1, (obstacles[i].position.z - riseStartZ) / (riseEndZ - riseStartZ))));
                 obstacles[i].position.y = obstacles[i].userData.hiddenY +
                     (obstacles[i].userData.finalY - obstacles[i].userData.hiddenY) * progress;
 
@@ -2322,13 +2463,18 @@
             // 移动积分
             for (let i = collectibles.length - 1; i >= 0; i--) {
                 collectibles[i].position.z += config.speed;
-                const fadeStartZ = collectibles[i].userData.fadeStartZ ?? -66;
-                const fadeEndZ = collectibles[i].userData.fadeEndZ ?? -26;
-                const appearProgress = Math.max(0, Math.min(1, (collectibles[i].position.z - fadeStartZ) / (fadeEndZ - fadeStartZ)));
+                const fadeStartZ = collectibles[i].userData.fadeStartZ ?? emergenceStartZ;
+                const fadeEndZ = collectibles[i].userData.fadeEndZ ?? emergenceEndZ;
+                const zProgress = getEmergenceProgress(collectibles[i].position.z);
+                const localProgress = Math.max(0, Math.min(1, (collectibles[i].position.z - fadeStartZ) / (fadeEndZ - fadeStartZ)));
+                const appearProgress = smoothstep01(Math.min(zProgress, localProgress));
+                const hiddenY = collectibles[i].userData.hiddenY ?? -1.8;
+                const finalY = collectibles[i].userData.finalY ?? 1;
+                collectibles[i].position.y = hiddenY + (finalY - hiddenY) * appearProgress;
                 collectibles[i].rotation.y += 0.015;
                 const pulse = 0.92 + Math.sin(nowMs * 0.006 + i) * 0.1;
                 const baseScale = collectibles[i].userData.baseScale ?? 1.2;
-                const fadeScale = 0.6 + appearProgress * 0.4;
+                const fadeScale = 0.55 + appearProgress * 0.45;
                 collectibles[i].scale.set(pulse * baseScale * fadeScale, pulse * baseScale * fadeScale, pulse * baseScale * fadeScale);
                 const sparkles = collectibles[i].userData.sparkles || [];
                 sparkles.forEach((sparkle, idx) => {
@@ -2337,16 +2483,16 @@
                     sparkle.position.y = Math.sin(angle * 1.2) * 0.05 + sparkle.userData.heightOffset;
                     sparkle.position.z = Math.sin(angle) * sparkle.userData.radius * 0.15;
                     const twinkle = 0.26 + (0.18 * Math.sin(nowSec * 5 + idx));
-                    sparkle.material.opacity = twinkle * appearProgress;
+                    const sparkleProgress = Math.max(0, (appearProgress - 0.2) / 0.8);
+                    sparkle.material.opacity = twinkle * sparkleProgress;
                     const sizePulse = 0.95 + 0.15 * Math.sin(nowSec * 3.4 + idx);
                     sparkle.scale.setScalar(sparkle.userData.size * sizePulse);
                 });
 
-                collectibles[i].traverse((node) => {
-                    if (node.material && typeof node.material.opacity === 'number') {
-                        if (!(collectibles[i].userData.sparkles || []).includes(node)) {
-                            node.material.opacity = 0.05 + appearProgress * 0.93;
-                        }
+                const opacityNodes = collectibles[i].userData.opacityNodes || [];
+                opacityNodes.forEach((node) => {
+                    if (!(collectibles[i].userData.sparkles || []).includes(node)) {
+                        node.material.opacity = appearProgress * 0.98;
                     }
                 });
                 if (collectibles[i].position.z > 10) {
@@ -2624,6 +2770,8 @@
                         buttonEl.style.display = 'inline-block';
                     }
                 }
+
+                updateMobileControlsVisibility();
             }
         }
 
@@ -2631,6 +2779,7 @@
         function startGame() {
             document.getElementById('start-screen').style.display = 'none';
             game.gameStarted = true;
+            updateMobileControlsVisibility();
         }
 
         // 进入下一关
@@ -2647,6 +2796,7 @@
             game.score = 0;
             // 保存游戏状态
             saveGameState();
+            updateMobileControlsVisibility();
             initGameWithLoading({ text: '正在准备下一关...', autoStart: true });
         }
 
@@ -2667,6 +2817,7 @@
                 game.paused = true;
                 game.gameStarted = false;
                 saveGameState();
+                updateMobileControlsVisibility();
                 return;
             }
 
@@ -2694,6 +2845,7 @@
             // 游戏结束时不保存游戏状态，这样重新进入时会重新开始
             localStorage.removeItem('gameState');
             console.log('Game over, local storage cleared');
+            updateMobileControlsVisibility();
         }
 
         // 重新开始
@@ -2717,6 +2869,7 @@
             // 清除保存的游戏状态
             localStorage.removeItem('gameState');
             console.log('Game restarted, local storage cleared');
+            updateMobileControlsVisibility();
             initGameWithLoading({ text: '正在重建赛道...' });
         }
 
@@ -2733,6 +2886,7 @@
             if (reviveModalEl) {
                 reviveModalEl.style.display = 'none';
             }
+            updateMobileControlsVisibility();
         }
 
         // 加载游戏状态
@@ -2804,12 +2958,37 @@
             } else {
                 pauseMenu.style.display = 'none';
             }
+            updateMobileControlsVisibility();
         }
 
         // 继续游戏
         function resumeGame() {
             game.paused = false;
             document.getElementById('pause-menu').style.display = 'none';
+            updateMobileControlsVisibility();
+        }
+
+        function updateMobileControlsVisibility() {
+            if (!isMobile) {
+                document.body.classList.remove('mobile-controls-active');
+                return;
+            }
+
+            const isVisible = (id) => {
+                const el = document.getElementById(id);
+                if (!el) return false;
+                return getComputedStyle(el).display !== 'none';
+            };
+
+            const panelBlocking =
+                isVisible('start-screen') ||
+                isVisible('game-over') ||
+                isVisible('level-complete') ||
+                isVisible('pause-menu') ||
+                isVisible('revive-modal');
+
+            const shouldShow = game.gameStarted && !game.gameOver && !game.paused && !panelBlocking;
+            document.body.classList.toggle('mobile-controls-active', shouldShow);
         }
 
         // 更新UI
@@ -2868,7 +3047,7 @@
                 // 跳跃镜头上移：根据离地高度做平滑抬升，增强腾空视觉
                 const jumpHeight = Math.max(0, ball.position.y - config.groundY);
                 const jumpLift = Math.min(1.5, jumpHeight);
-                const camTargetY = baseCamTargetY + jumpLift * (isMobile ? 0.72 : 0.62);
+                const camTargetY = baseCamTargetY + jumpLift * 0.62;
                 const camLookAtY = baseCamLookAtY + jumpLift * 0.42;
 
                 camera.position.x += (camTargetX - camera.position.x) * 0.12;
@@ -2880,6 +3059,16 @@
             if (renderer && scene && camera) {
                 renderer.render(scene, camera);
             }
+        }
+
+        function tryJump() {
+            if (!game.gameStarted || game.gameOver || game.paused || !isGrounded) {
+                return false;
+            }
+
+            verticalVelocity = config.jumpVelocity;
+            isGrounded = false;
+            return true;
         }
 
         // 事件监听
@@ -2894,10 +3083,9 @@
             }
 
             // W/↑ 跳跃（只能单段跳）
-            if ((e.code === 'KeyW' || e.code === 'ArrowUp') && game.gameStarted && !game.gameOver && !game.paused && isGrounded) {
+            if (e.code === 'KeyW' || e.code === 'ArrowUp') {
                 e.preventDefault();
-                verticalVelocity = config.jumpVelocity;
-                isGrounded = false;
+                tryJump();
             }
         });
 
@@ -2982,15 +3170,57 @@
             keys['arrowright'] = false;
         });
 
-        window.addEventListener('resize', () => {
-            if (camera && renderer) {
-                camera.aspect = window.innerWidth / window.innerHeight;
-                camera.updateProjectionMatrix();
-                updateMobileRenderTuning();
-                renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, getRenderPixelRatioCap()));
-                renderer.setSize(window.innerWidth, window.innerHeight);
-            }
+        const jumpButtonIds = ['jump-left', 'jump-right'];
+        jumpButtonIds.forEach((buttonId) => {
+            const button = document.getElementById(buttonId);
+            if (!button) return;
+
+            button.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                tryJump();
+            }, { passive: false });
+
+            button.addEventListener('click', (e) => {
+                e.preventDefault();
+                tryJump();
+            });
         });
+
+        function updateViewportBottomGap() {
+            const vv = window.visualViewport;
+            let bottomGap = 0;
+
+            if (vv) {
+                bottomGap = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+            }
+
+            document.documentElement.style.setProperty('--viewport-bottom-gap', `${bottomGap}px`);
+        }
+
+        window.addEventListener('resize', () => {
+            updateViewportBottomGap();
+
+            const viewport = getViewportDimensions();
+            const currWidth = viewport.width;
+            const currHeight = viewport.height;
+            const widthDelta = Math.abs(currWidth - lastResizeWidth);
+            const heightDelta = Math.abs(currHeight - lastResizeHeight);
+            const orientationChanged = (currWidth > currHeight) !== (lastResizeWidth > lastResizeHeight);
+
+            // 地址栏伸缩导致的小幅变化只同步画布尺寸，不刷新像素比，减少卡顿与清晰度抖动
+            const smallViewportDrift = isMobile && !orientationChanged && widthDelta < 24 && heightDelta < 180;
+            scheduleViewportSync({ refreshPixelRatio: !smallViewportDrift });
+        });
+
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', () => {
+                updateViewportBottomGap();
+                scheduleViewportSync({ refreshPixelRatio: false });
+            });
+            window.visualViewport.addEventListener('scroll', updateViewportBottomGap);
+        }
+
+        updateViewportBottomGap();
 
         // 启动游戏
         initGameWithLoading();
