@@ -19,7 +19,7 @@
             margin: 0;
             padding: 0;
             overflow: hidden;
-            background: linear-gradient(180deg, #141b42 0%, #1a2352 42%, #2f3b74 100%);
+            background: linear-gradient(180deg, #141b42 0%, #1a2352 42%, #1f2859 100%);
             font-family: Arial, sans-serif;
         }
 
@@ -66,7 +66,13 @@
             left: 0;
             width: 100%;
             height: calc(150px + var(--safe-area-bottom) + var(--viewport-bottom-gap));
-            background: linear-gradient(to top, rgba(41, 56, 116, 0.22), rgba(41, 56, 116, 0));
+            background: linear-gradient(to top, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0));
+            border: 2px solid rgba(255, 255, 255, 0.35);
+            border-bottom: none;
+            border-left: none;
+            border-right: none;
+            border-radius: 20px 20px 0 0;
+            box-shadow: inset 0 0 40px rgba(255, 255, 255, 0.12);
             z-index: 50;
             display: none;
             pointer-events: none;
@@ -76,7 +82,7 @@
             position: fixed;
             left: 0;
             right: 0;
-            bottom: calc(26px + var(--safe-area-bottom) + var(--viewport-bottom-gap));
+            bottom: calc(70px + var(--safe-area-bottom) + var(--viewport-bottom-gap));
             z-index: 70;
             pointer-events: none;
             display: none;
@@ -99,26 +105,40 @@
 
         .jump-btn {
             position: absolute;
-            width: 68px;
-            height: 68px;
+            width: 72px;
+            height: 72px;
             border-radius: 50%;
-            border: 1px solid rgba(174, 224, 255, 0.6);
-            background: radial-gradient(circle at 30% 30%, rgba(97, 193, 255, 0.96), rgba(35, 84, 166, 0.84));
-            color: #eaf8ff;
-            font-size: 14px;
-            font-weight: 600;
-            box-shadow: 0 8px 18px rgba(6, 16, 45, 0.38), inset 0 0 12px rgba(198, 236, 255, 0.22);
+            border: 2px solid rgba(120, 200, 255, 0.28);
+            background:
+                radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.24), transparent 50%),
+                radial-gradient(circle at 50% 50%, rgba(100, 180, 255, 0.42), rgba(40, 100, 200, 0.3));
+            color: #ffffff;
+            font-size: 15px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            box-shadow:
+                0 5px 16px rgba(40, 120, 220, 0.22),
+                0 2px 8px rgba(255, 255, 255, 0.12),
+                inset 0 1px 1px rgba(255, 255, 255, 0.32),
+                inset 0 -2px 8px rgba(0, 0, 0, 0.14);
             pointer-events: auto;
             user-select: none;
             touch-action: manipulation;
             -webkit-tap-highlight-color: transparent;
-            backdrop-filter: blur(3px);
-            -webkit-backdrop-filter: blur(3px);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            cursor: pointer;
+            transition: all 0.15s ease;
         }
 
         .jump-btn:active {
-            transform: translateY(1px) scale(0.96);
-            box-shadow: 0 5px 12px rgba(6, 16, 45, 0.35), inset 0 0 10px rgba(198, 236, 255, 0.2);
+            transform: translateY(2px) scale(0.94);
+            box-shadow:
+                0 3px 10px rgba(40, 120, 220, 0.2),
+                0 1px 4px rgba(255, 255, 255, 0.1),
+                inset 0 1px 1px rgba(255, 255, 255, 0.2),
+                inset 0 -1px 6px rgba(0, 0, 0, 0.2);
         }
 
         #jump-left {
@@ -426,7 +446,10 @@
         let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
         const deviceMemoryGB = navigator.deviceMemory || 0;
         const hardwareThreads = navigator.hardwareConcurrency || 4;
-    const memoryKnown = deviceMemoryGB > 0;
+        const memoryKnown = deviceMemoryGB > 0;
+        const mobileLowTier = isMobile && ((memoryKnown && deviceMemoryGB > 0 && deviceMemoryGB <= 4) || (!memoryKnown && hardwareThreads <= 6));
+        const mobileVisualEffectStep = mobileLowTier ? 3 : 2;
+        let mobileVisualFrameCounter = 0;
         const emergenceStartZ = -72;
         const emergenceEndZ = -30;
         let mobilePixelRatioCap = 1.45;
@@ -591,17 +614,18 @@
         let collectibles = [];
         let collectibleBursts = [];
         let lastBallX = 0;
+        let lastCollisionBallPos = null;
         let ballTrailNodes = [];
         let ballTrailSystem = null;
         let ballTrailSprites = [];
-        const ballTrailMaxNodes = isMobile ? 40 : 56;
+        const ballTrailMaxNodes = isMobile ? 28 : 56;
         let ballTrailDirection = null;
         let keys = {};
-    let verticalVelocity = 0;
-    let isGrounded = true;
+        let verticalVelocity = 0;
+        let isGrounded = true;
         let roadMaterial = null;
         let vortexTexturePool = [];
-    const mobileFaceRefreshIntervalMs = 130;
+        const mobileFaceRefreshIntervalMs = mobileLowTier ? 180 : 150;
         let modelLoadingShownAt = 0;
         const minLoadingVisibleMs = isMobile ? 520 : 260;
         const loadingAppearDelayMs = isMobile ? 260 : 180;
@@ -849,7 +873,7 @@
                 ? Math.max(1, Math.min(isMobile ? mobileAnisotropyCap : 8, renderer.capabilities.getMaxAnisotropy()))
                 : 1;
             document.body.appendChild(renderer.domElement);
-            renderer.domElement.style.filter = 'saturate(1.04) contrast(1.02)';
+            renderer.domElement.style.filter = isMobile ? 'none' : 'saturate(1.04) contrast(1.02)';
 
             // 添加灯光
             const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
@@ -889,7 +913,7 @@
         // 添加背景星星效果
         function addBackgroundStars() {
             const starsGeometry = new THREE.BufferGeometry();
-            const starsCount = isMobile ? 150 : 1000;
+            const starsCount = isMobile ? 96 : 1000;
 
             const positions = new Float32Array(starsCount * 3);
             const colors = new Float32Array(starsCount * 3);
@@ -1039,6 +1063,7 @@
             verticalVelocity = 0;
             isGrounded = true;
             lastBallX = ball.position.x;
+            lastCollisionBallPos = null;
             scene.add(ball);
 
             createBallTrailSystem();
@@ -2340,6 +2365,7 @@
 
             const nowMs = performance.now();
             const nowSec = nowMs * 0.001;
+            const shouldUpdateVisualFx = !isMobile || (mobileVisualFrameCounter % mobileVisualEffectStep === 0);
 
             game.distance += config.speed;
 
@@ -2387,7 +2413,7 @@
                     (obstacles[i].userData.finalY - obstacles[i].userData.hiddenY) * progress;
 
                 const obstacle = obstacles[i];
-                if (obstacle.userData.type === 'candle' && obstacle.userData.flameOuter && obstacle.userData.flameInner) {
+                if (shouldUpdateVisualFx && obstacle.userData.type === 'candle' && obstacle.userData.flameOuter && obstacle.userData.flameInner) {
                     const flameWave = Math.sin(nowSec * 7 + obstacle.userData.flamePhase);
                     obstacle.userData.flameOuter.position.y = 0.84 + flameWave * 0.05;
                     obstacle.userData.flameOuter.scale.set(1 - flameWave * 0.08, 1 + Math.abs(flameWave) * 0.15, 1 - flameWave * 0.08);
@@ -2395,7 +2421,7 @@
                     obstacle.userData.flameInner.scale.set(1 - flameWave * 0.1, 1 + Math.abs(flameWave) * 0.2, 1 - flameWave * 0.1);
                 }
 
-                if (obstacle.userData.type === 'vortex' && obstacle.userData.vortexTexture) {
+                if (shouldUpdateVisualFx && obstacle.userData.type === 'vortex' && obstacle.userData.vortexTexture) {
                     const phase = obstacle.userData.vortexPhase || 0;
                     const spin = 0.036;
                     obstacle.rotation.z += spin;
@@ -2413,7 +2439,7 @@
                     }
                 }
 
-                if (obstacle.userData.type === 'donut' && obstacle.userData.ringTextureA && obstacle.userData.ringTextureB) {
+                if (shouldUpdateVisualFx && obstacle.userData.type === 'donut' && obstacle.userData.ringTextureA && obstacle.userData.ringTextureB) {
                     const phase = obstacle.userData.ringPhase || 0;
                     const spin = 0.036;
                     obstacle.rotation.z += spin * 0.45;
@@ -2445,7 +2471,7 @@
                     }
                 }
 
-                if (obstacle.userData.type === 'faceBlock' && obstacle.userData.blinkFace) {
+                if (shouldUpdateVisualFx && obstacle.userData.type === 'faceBlock' && obstacle.userData.blinkFace) {
                     if (!isMobile || nowMs >= (obstacle.userData.nextFaceRefreshAt || 0)) {
                         drawBlinkFace(obstacle.userData.blinkFace, nowMs);
                         if (isMobile) {
@@ -2472,29 +2498,31 @@
                 const finalY = collectibles[i].userData.finalY ?? 1;
                 collectibles[i].position.y = hiddenY + (finalY - hiddenY) * appearProgress;
                 collectibles[i].rotation.y += 0.015;
-                const pulse = 0.92 + Math.sin(nowMs * 0.006 + i) * 0.1;
-                const baseScale = collectibles[i].userData.baseScale ?? 1.2;
-                const fadeScale = 0.55 + appearProgress * 0.45;
-                collectibles[i].scale.set(pulse * baseScale * fadeScale, pulse * baseScale * fadeScale, pulse * baseScale * fadeScale);
-                const sparkles = collectibles[i].userData.sparkles || [];
-                sparkles.forEach((sparkle, idx) => {
-                    const angle = nowSec * sparkle.userData.speed + sparkle.userData.phase;
-                    sparkle.position.x = Math.cos(angle) * sparkle.userData.radius;
-                    sparkle.position.y = Math.sin(angle * 1.2) * 0.05 + sparkle.userData.heightOffset;
-                    sparkle.position.z = Math.sin(angle) * sparkle.userData.radius * 0.15;
-                    const twinkle = 0.26 + (0.18 * Math.sin(nowSec * 5 + idx));
-                    const sparkleProgress = Math.max(0, (appearProgress - 0.2) / 0.8);
-                    sparkle.material.opacity = twinkle * sparkleProgress;
-                    const sizePulse = 0.95 + 0.15 * Math.sin(nowSec * 3.4 + idx);
-                    sparkle.scale.setScalar(sparkle.userData.size * sizePulse);
-                });
+                if (shouldUpdateVisualFx) {
+                    const pulse = 0.92 + Math.sin(nowMs * 0.006 + i) * 0.1;
+                    const baseScale = collectibles[i].userData.baseScale ?? 1.2;
+                    const fadeScale = 0.55 + appearProgress * 0.45;
+                    collectibles[i].scale.set(pulse * baseScale * fadeScale, pulse * baseScale * fadeScale, pulse * baseScale * fadeScale);
+                    const sparkles = collectibles[i].userData.sparkles || [];
+                    sparkles.forEach((sparkle, idx) => {
+                        const angle = nowSec * sparkle.userData.speed + sparkle.userData.phase;
+                        sparkle.position.x = Math.cos(angle) * sparkle.userData.radius;
+                        sparkle.position.y = Math.sin(angle * 1.2) * 0.05 + sparkle.userData.heightOffset;
+                        sparkle.position.z = Math.sin(angle) * sparkle.userData.radius * 0.15;
+                        const twinkle = 0.26 + (0.18 * Math.sin(nowSec * 5 + idx));
+                        const sparkleProgress = Math.max(0, (appearProgress - 0.2) / 0.8);
+                        sparkle.material.opacity = twinkle * sparkleProgress;
+                        const sizePulse = 0.95 + 0.15 * Math.sin(nowSec * 3.4 + idx);
+                        sparkle.scale.setScalar(sparkle.userData.size * sizePulse);
+                    });
 
-                const opacityNodes = collectibles[i].userData.opacityNodes || [];
-                opacityNodes.forEach((node) => {
-                    if (!(collectibles[i].userData.sparkles || []).includes(node)) {
-                        node.material.opacity = appearProgress * 0.98;
-                    }
-                });
+                    const opacityNodes = collectibles[i].userData.opacityNodes || [];
+                    opacityNodes.forEach((node) => {
+                        if (!(collectibles[i].userData.sparkles || []).includes(node)) {
+                            node.material.opacity = appearProgress * 0.98;
+                        }
+                    });
+                }
                 if (collectibles[i].position.z > 10) {
                     if (!collectibles[i].userData.collected) {
                         currentLevelCollectibleMissed++;
@@ -2530,6 +2558,25 @@
             // 小球的边界球半径
             const ballRadius = ball.userData.radius || 0.5;
             const ballPosition = ball.position;
+            const previousBallSample = lastCollisionBallPos
+                ? { ...lastCollisionBallPos }
+                : { x: ballPosition.x, y: ballPosition.y, z: ballPosition.z };
+            const currentBallSample = { x: ballPosition.x, y: ballPosition.y, z: ballPosition.z };
+            const torusSamples = [currentBallSample];
+            const sampleDeltaSq =
+                Math.pow(currentBallSample.x - previousBallSample.x, 2) +
+                Math.pow(currentBallSample.y - previousBallSample.y, 2) +
+                Math.pow(currentBallSample.z - previousBallSample.z, 2);
+
+            if (sampleDeltaSq > 1e-6) {
+                torusSamples.push({
+                    x: (currentBallSample.x + previousBallSample.x) * 0.5,
+                    y: (currentBallSample.y + previousBallSample.y) * 0.5,
+                    z: (currentBallSample.z + previousBallSample.z) * 0.5
+                });
+                torusSamples.push(previousBallSample);
+            }
+            lastCollisionBallPos = currentBallSample;
 
             // 检测障碍物碰撞 - 严格判定，碰到即算
             let collisionDetected = false;
@@ -2601,35 +2648,36 @@
                     const rawInnerRadius = (collider.innerRadius ?? (collider.ringRadius - collider.tubeRadius)) * radialScale;
                     const outerRadius = (collider.outerRadius ?? (collider.ringRadius + collider.tubeRadius)) * radialScale;
                     const depthHalf = (collider.depthHalf ?? collider.tubeRadius) * depthScale;
-                    // 内圈容错：适当扩大可穿越孔洞，降低“贴内边就判死”
-                    const innerBoundaryForgiveness = Math.min(0.16, rawInnerRadius * 0.14);
+                    // 收紧容错：减少“肉眼已碰到边缘却仍判通过”
+                    const innerBoundaryForgiveness = Math.min(0.09, rawInnerRadius * 0.09);
                     const innerRadius = Math.min(outerRadius - 0.02, rawInnerRadius + innerBoundaryForgiveness);
-
-                    const dx = ballPosition.x - position.x;
-                    const dy = ballPosition.y - position.y;
-                    const radialDistance = Math.hypot(dx, dy);
-                    const dz = Math.abs(ballPosition.z - position.z);
-
-                    let radialGap = 0;
-                    if (radialDistance < innerRadius) {
-                        // 对“从孔洞擦边通过”再加一层缓冲，减少内圈瞬时误判
-                        const innerPassSlack = Math.min(0.18, innerRadius * 0.16);
-                        radialGap = Math.max(0, innerRadius - radialDistance - innerPassSlack);
-                    } else if (radialDistance > outerRadius) {
-                        radialGap = radialDistance - outerRadius;
-                    }
-
-                    // 优化前后边界：缩小Z向有效厚度，减少“刚起跳就死”
-                    const frontBackForgiveness = Math.min(0.16, depthHalf * 0.62);
-                    const effectiveDepthHalf = Math.max(0.01, depthHalf - frontBackForgiveness);
-                    const depthGap = Math.max(0, dz - effectiveDepthHalf);
-                    const surfaceDistanceSq = radialGap * radialGap + depthGap * depthGap;
-                    // 圆环判定增加轻微容错，降低“贴边就判死”的卡手感
-                    const torusForgiveness = 0.085;
+                    // Z向边界保留轻微缓冲，降低前后面误触
+                    const frontBackForgiveness = Math.min(0.12, depthHalf * 0.56);
+                    const effectiveDepthHalf = Math.max(0.02, depthHalf - frontBackForgiveness);
+                    const torusForgiveness = 0.05;
                     const torusCollideRadius = Math.max(0.01, ballRadius - torusForgiveness);
                     const collideRadiusSq = torusCollideRadius * torusCollideRadius;
 
-                    if (surfaceDistanceSq <= collideRadiusSq) {
+                    const checkTorusCollisionAt = (sample) => {
+                        const dx = sample.x - position.x;
+                        const dy = sample.y - position.y;
+                        const radialDistance = Math.hypot(dx, dy);
+                        const dz = Math.abs(sample.z - position.z);
+
+                        let radialGap = 0;
+                        if (radialDistance < innerRadius) {
+                            const innerPassSlack = Math.min(0.09, innerRadius * 0.09);
+                            radialGap = Math.max(0, innerRadius - radialDistance - innerPassSlack);
+                        } else if (radialDistance > outerRadius) {
+                            radialGap = radialDistance - outerRadius;
+                        }
+
+                        const depthGap = Math.max(0, dz - effectiveDepthHalf);
+                        const surfaceDistanceSq = radialGap * radialGap + depthGap * depthGap;
+                        return surfaceDistanceSq <= collideRadiusSq;
+                    };
+
+                    if (torusSamples.some(checkTorusCollisionAt)) {
                         collisionDetected = true;
                     }
                 } else {
@@ -3026,6 +3074,7 @@
                 // 使用固定速度更新
                 config.speed = fixedSpeed;
                 config.moveSpeed = fixedMoveSpeed;
+                mobileVisualFrameCounter++;
 
                 const stepScale = dt / config.fixedTimeStep;
                 handleMovement(stepScale);
