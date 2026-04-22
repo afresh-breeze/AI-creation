@@ -108,38 +108,32 @@
             width: 72px;
             height: 72px;
             border-radius: 50%;
-            border: 2px solid rgba(120, 200, 255, 0.28);
-            background:
-                radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.24), transparent 50%),
-                radial-gradient(circle at 50% 50%, rgba(100, 180, 255, 0.42), rgba(40, 100, 200, 0.3));
+            border: 2px solid rgba(80, 180, 255, 0.9);
+  background: rgba(135, 206, 250, 0.25);
             color: #ffffff;
             font-size: 15px;
             font-weight: 700;
             letter-spacing: 1px;
-            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-            box-shadow:
-                0 5px 16px rgba(40, 120, 220, 0.22),
-                0 2px 8px rgba(255, 255, 255, 0.12),
-                inset 0 1px 1px rgba(255, 255, 255, 0.32),
-                inset 0 -2px 8px rgba(0, 0, 0, 0.14);
-            pointer-events: auto;
-            user-select: none;
-            touch-action: manipulation;
-            -webkit-tap-highlight-color: transparent;
-            backdrop-filter: blur(6px);
-            -webkit-backdrop-filter: blur(6px);
-            cursor: pointer;
-            transition: all 0.15s ease;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  box-shadow:
+    0 0 20px rgba(80, 180, 255, 0.6),
+    0 0 40px rgba(80, 180, 255, 0.3),
+    inset 0 0 15px rgba(135, 206, 250, 0.3);
+  pointer-events: auto;
+  user-select: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
         }
 
-        .jump-btn:active {
-            transform: translateY(2px) scale(0.94);
-            box-shadow:
-                0 3px 10px rgba(40, 120, 220, 0.2),
-                0 1px 4px rgba(255, 255, 255, 0.1),
-                inset 0 1px 1px rgba(255, 255, 255, 0.2),
-                inset 0 -1px 6px rgba(0, 0, 0, 0.2);
-        }
+.jump-btn:active {
+  transform: translateY(2px) scale(0.94);
+  box-shadow:
+    0 0 25px rgba(80, 180, 255, 0.8),
+    0 0 50px rgba(80, 180, 255, 0.4),
+    inset 0 0 20px rgba(135, 206, 250, 0.4);
+}
 
         #jump-left {
             left: 16px;
@@ -1906,7 +1900,14 @@
             obstacle.add(front);
             obstacle.add(back);
 
-            obstacle.userData.collider = { type: 'cylinder', radius: 0.55, halfHeight: 0.55 };
+            // 使用与可视平面对齐的圆盘碰撞体，避免边界提前判死
+            obstacle.userData.collider = {
+                type: 'disk',
+                radius: 0.5,
+                depthHalf: 0.1,
+                edgeForgiveness: 0.04,
+                sphereForgiveness: 0.06
+            };
             obstacle.userData.type = 'vortex';
             // 漩涡尺寸多样性：受控随机，避免过小/过大
             obstacle.userData.sizeFactor = 0.88 + Math.random() * 0.38; // [0.88, 1.26]
@@ -2610,6 +2611,31 @@
                     if (distance < ballRadius) {
                         collisionDetected = true;
                     }
+                } else if (collider.type === 'disk') {
+                    // 漩涡是朝向镜头的圆盘（XY平面），按半径+薄厚度进行判定
+                    const radius = collider.radius * Math.max(scale.x, scale.y);
+                    const depthHalf = (collider.depthHalf ?? 0.1) * Math.max(1e-6, Math.abs(scale.z));
+                    const edgeForgiveness = Math.min(collider.edgeForgiveness ?? 0.04, radius * 0.18);
+                    const effectiveRadius = Math.max(0.01, radius - edgeForgiveness);
+                    const sphereForgiveness = collider.sphereForgiveness ?? 0.06;
+                    const collideRadius = Math.max(0.01, ballRadius - sphereForgiveness);
+                    const collideRadiusSq = collideRadius * collideRadius;
+
+                    const checkDiskCollisionAt = (sample) => {
+                        const dx = sample.x - position.x;
+                        const dy = sample.y - position.y;
+                        const radialDistance = Math.hypot(dx, dy);
+                        const dz = Math.abs(sample.z - position.z);
+
+                        const radialGap = Math.max(0, radialDistance - effectiveRadius);
+                        const depthGap = Math.max(0, dz - depthHalf);
+                        const surfaceDistanceSq = radialGap * radialGap + depthGap * depthGap;
+                        return surfaceDistanceSq <= collideRadiusSq;
+                    };
+
+                    if (torusSamples.some(checkDiskCollisionAt)) {
+                        collisionDetected = true;
+                    }
                 } else if (collider.type === 'cylinder') {
                     const radius = collider.radius * Math.max(scale.x, scale.z);
                     const halfHeight = collider.halfHeight * scale.y;
@@ -2649,12 +2675,12 @@
                     const outerRadius = (collider.outerRadius ?? (collider.ringRadius + collider.tubeRadius)) * radialScale;
                     const depthHalf = (collider.depthHalf ?? collider.tubeRadius) * depthScale;
                     // 收紧容错：减少“肉眼已碰到边缘却仍判通过”
-                    const innerBoundaryForgiveness = Math.min(0.09, rawInnerRadius * 0.09);
+                    const innerBoundaryForgiveness = Math.min(0.15, rawInnerRadius * 0.15);
                     const innerRadius = Math.min(outerRadius - 0.02, rawInnerRadius + innerBoundaryForgiveness);
                     // Z向边界保留轻微缓冲，降低前后面误触
-                    const frontBackForgiveness = Math.min(0.12, depthHalf * 0.56);
+                    const frontBackForgiveness = Math.min(0.18, depthHalf * 0.65);
                     const effectiveDepthHalf = Math.max(0.02, depthHalf - frontBackForgiveness);
-                    const torusForgiveness = 0.05;
+                    const torusForgiveness = 0.20;
                     const torusCollideRadius = Math.max(0.01, ballRadius - torusForgiveness);
                     const collideRadiusSq = torusCollideRadius * torusCollideRadius;
 
@@ -2666,10 +2692,11 @@
 
                         let radialGap = 0;
                         if (radialDistance < innerRadius) {
-                            const innerPassSlack = Math.min(0.09, innerRadius * 0.09);
+                            const innerPassSlack = Math.min(0.15, innerRadius * 0.15);
                             radialGap = Math.max(0, innerRadius - radialDistance - innerPassSlack);
                         } else if (radialDistance > outerRadius) {
-                            radialGap = radialDistance - outerRadius;
+  const outerPassSlack = Math.min(0.18, outerRadius * 0.12);
+  radialGap = Math.max(0, radialDistance - outerRadius - outerPassSlack);
                         }
 
                         const depthGap = Math.max(0, dz - effectiveDepthHalf);
