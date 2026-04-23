@@ -72,7 +72,7 @@
             border-left: none;
             border-right: none;
             border-radius: 20px 20px 0 0;
-            box-shadow: inset 0 0 40px rgba(255, 255, 255, 0.12);
+            box-shadow: inset 0 0 30px rgba(255, 255, 255, 0.12);
             z-index: 50;
             display: none;
             pointer-events: none;
@@ -108,17 +108,17 @@
             width: 72px;
             height: 72px;
             border-radius: 50%;
-            border: 2px solid rgba(80, 180, 255, 0.9);
-  background: rgba(135, 206, 250, 0.25);
+            border: 2px solid rgba(173, 216, 230, 0.5);
+  background: rgba(135, 206, 250, 0.2);
             color: #ffffff;
             font-size: 15px;
             font-weight: 700;
             letter-spacing: 1px;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   box-shadow:
-    0 0 20px rgba(80, 180, 255, 0.6),
-    0 0 40px rgba(80, 180, 255, 0.3),
-    inset 0 0 15px rgba(135, 206, 250, 0.3);
+    0 0 15px rgba(173, 216, 230, 0.3),
+    0 0 30px rgba(173, 216, 230, 0.2),
+    inset 0 0 10px rgba(135, 206, 250, 0.2);
   pointer-events: auto;
   user-select: none;
   touch-action: manipulation;
@@ -130,9 +130,9 @@
 .jump-btn:active {
   transform: translateY(2px) scale(0.94);
   box-shadow:
-    0 0 25px rgba(80, 180, 255, 0.8),
-    0 0 50px rgba(80, 180, 255, 0.4),
-    inset 0 0 20px rgba(135, 206, 250, 0.4);
+    0 0 20px rgba(80, 180, 255, 0.6),
+    0 0 35px rgba(80, 180, 255, 0.3),
+    inset 0 0 10px rgba(135, 206, 250, 0.3);
 }
 
         #jump-left {
@@ -446,8 +446,8 @@
         let mobileVisualFrameCounter = 0;
         const emergenceStartZ = -72;
         const emergenceEndZ = -30;
-        let mobilePixelRatioCap = 1.45;
-        let mobileAnisotropyCap = 2;
+        let mobilePixelRatioCap = 1.0;
+        let mobileAnisotropyCap = 1;
         let enableMobileAntialias = false;
         let textureAnisotropyLevel = 1;
         let lastResizeWidth = window.innerWidth;
@@ -474,15 +474,15 @@
                 (!memoryKnown && hardwareThreads >= 8);
 
             if (highEnd && dpr >= 2.2 && shortEdge >= 390) {
-                mobilePixelRatioCap = 1.35;
-                mobileAnisotropyCap = 2;
+                mobilePixelRatioCap = 1.0;
+                mobileAnisotropyCap = 1;
                 enableMobileAntialias = false;
             } else if (mediumEnd) {
-                mobilePixelRatioCap = 1.25;
+                mobilePixelRatioCap = 1.0;
                 mobileAnisotropyCap = 1;
                 enableMobileAntialias = false;
             } else {
-                mobilePixelRatioCap = 1.15;
+                mobilePixelRatioCap = 1.0;
                 mobileAnisotropyCap = 1;
                 enableMobileAntialias = false;
             }
@@ -572,7 +572,7 @@
             groundY: 0.5,
             roadWidth: 12,
             roadLength: 200,
-            segments: isMobile ? 8 : 10,
+            segments: isMobile ? 6 : 10,
             maxDistance: 1000, // 基础最大距离
             fixedTimeStep: 1 / 60 // 固定时间步长，60fps
         };
@@ -612,7 +612,7 @@
         let ballTrailNodes = [];
         let ballTrailSystem = null;
         let ballTrailSprites = [];
-        const ballTrailMaxNodes = isMobile ? 28 : 56;
+        const ballTrailMaxNodes = isMobile ? 20 : 56;
         let ballTrailDirection = null;
         let keys = {};
         let verticalVelocity = 0;
@@ -873,7 +873,7 @@
             const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
             scene.add(ambientLight);
 
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
             directionalLight.position.set(0, 10, -5);
             scene.add(directionalLight);
 
@@ -907,7 +907,7 @@
         // 添加背景星星效果
         function addBackgroundStars() {
             const starsGeometry = new THREE.BufferGeometry();
-            const starsCount = isMobile ? 96 : 1000;
+            const starsCount = isMobile ? 50 : 1000;
 
             const positions = new Float32Array(starsCount * 3);
             const colors = new Float32Array(starsCount * 3);
@@ -933,7 +933,7 @@
 
                 // 颜色
                 const color = new THREE.Color();
-                color.setHSL(Math.random(), 0.8, 0.8);
+                color.setHSL(Math.random(), 0.8, 0.6);
                 colors[i * 3] = color.r;
                 colors[i * 3 + 1] = color.g;
                 colors[i * 3 + 2] = color.b;
@@ -1360,7 +1360,7 @@
 
         function createVortexTexture() {
             const canvas = document.createElement('canvas');
-            const vortexTexSize = isMobile ? 512 : 1024;
+            const vortexTexSize = isMobile ? 256 : 1024;
             canvas.width = vortexTexSize;
             canvas.height = vortexTexSize;
             const ctx = canvas.getContext('2d');
@@ -1395,7 +1395,7 @@
                 const startR = maxR - (spanBase * (0.08 + uBand * 0.82));
                 const endR = Math.max(rInner, startR - span);
 
-                const steps = isMobile ? 520 : 1200;
+                const steps = isMobile ? 300 : 1200;
                 ctx.lineCap = 'round';
                 ctx.lineJoin = 'round';
 
@@ -1505,7 +1505,7 @@
 
         function createVortexRingTexture({ reverse = false, phaseOffset = 0 } = {}) {
             const canvas = document.createElement('canvas');
-            const texSize = isMobile ? 512 : 1024;
+            const texSize = isMobile ? 256 : 1024;
             canvas.width = texSize;
             canvas.height = texSize;
             const ctx = canvas.getContext('2d');
@@ -1530,7 +1530,7 @@
 
             const lineCount = 2; // 每层2条，两层共4条
             const turnsByLine = reverse ? [3.9, 3.05] : [3.35, 4.25]; // 线条长度不同，整体更紧凑
-            const steps = isMobile ? 360 : 740;
+            const steps = isMobile ? 200 : 740;
             const baseWidth = isMobile ? 7.1 : 8.5; // 稍微加粗
             const direction = reverse ? -1 : 1;
 
@@ -2511,7 +2511,7 @@
                         sparkle.position.y = Math.sin(angle * 1.2) * 0.05 + sparkle.userData.heightOffset;
                         sparkle.position.z = Math.sin(angle) * sparkle.userData.radius * 0.15;
                         const twinkle = 0.26 + (0.18 * Math.sin(nowSec * 5 + idx));
-                        const sparkleProgress = Math.max(0, (appearProgress - 0.2) / 0.8);
+                        const sparkleProgress = Math.max(0, (appearProgress - 0.2) / 0.6);
                         sparkle.material.opacity = twinkle * sparkleProgress;
                         const sizePulse = 0.95 + 0.15 * Math.sin(nowSec * 3.4 + idx);
                         sparkle.scale.setScalar(sparkle.userData.size * sizePulse);
