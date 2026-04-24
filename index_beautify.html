@@ -377,6 +377,7 @@
         <h2>游戏结束</h2>
         <p>最终分数: <span id="final-score">0</span></p>
         <p>最高关卡: <span id="final-level">1</span></p>
+        <p>按空格可重新开始</p>
         <button class="btn-success" onclick="restartGame()">重新开始</button>
     </div>
 
@@ -386,8 +387,8 @@
         <div style="margin: 20px 0;">
             <button class="btn-primary" onclick="resumeGame()"
                 style="margin: 10px; padding: 10px 20px; font-size: 16px;">继续游戏</button>
-            <button class="btn-success" onclick="restartGame()"
-                style="margin: 10px; padding: 10px 20px; font-size: 16px;">重新开始</button>
+            <button class="btn-success" onclick="restartCurrentLevel()"
+                style="margin: 10px; padding: 10px 20px; font-size: 16px;">重开本关</button>
         </div>
     </div>
 
@@ -403,6 +404,7 @@
                 <p>5. 收集星光积分</p>
                 <p>6. 达到目标分数升级关卡</p>
                 <p>7. 撞到障碍物游戏结束</p>
+                <p>8. 开始/复活/下一关/重开都可按空格确认</p>
             </div>
             <div id="rules-mobile" style="display: none;">
                 <p>1. 在屏幕下方左右滑动控制小球</p>
@@ -413,6 +415,7 @@
                 <p>6. 撞到障碍物游戏结束</p>
             </div>
         </div>
+        <p>按空格可开始/继续游戏</p>
         <button class="btn-primary" onclick="startGame()">开始游戏</button>
     </div>
 
@@ -420,6 +423,7 @@
         <h2>关卡 <span id="completed-level">1</span> 完成！</h2>
         <p>获得分数: <span id="completed-score">0</span></p>
         <p>目标分数: <span id="completed-target">50</span></p>
+        <p>按空格可进入下一关</p>
         <p id="level-bonus-tip" style="display:none; color:#9ff3ff; text-shadow:0 0 8px rgba(159,243,255,0.55);"></p>
         <button class="btn-primary" onclick="nextLevel()">进入下一关</button>
         <button class="btn-danger" onclick="restartGame()">重新开始</button>
@@ -429,6 +433,7 @@
         style="display:none; position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); background:rgba(0,0,0,0.9); color:white; padding:30px; border-radius:10px; text-align:center; z-index:1100; max-width:90%; width:400px;">
         <h2>成功复活</h2>
         <p>剩余复活次数：<span id="revive-remaining">0</span></p>
+        <p>按空格可继续游戏</p>
         <button class="btn-primary" onclick="continueAfterRevive()">继续游戏</button>
     </div>
 
@@ -2948,6 +2953,28 @@
             initGameWithLoading({ text: '正在重建赛道...' });
         }
 
+        // 重开当前关卡（保留复活次数与大满贯进度）
+        function restartCurrentLevel() {
+            document.getElementById('game-over').style.display = 'none';
+            document.getElementById('level-complete').style.display = 'none';
+            document.getElementById('pause-menu').style.display = 'none';
+            document.getElementById('revive-modal').style.display = 'none';
+
+            game.score = 0;
+            game.gameStarted = false;
+            game.gameOver = false;
+            game.distance = 0;
+            game.paused = false;
+            currentLevelCollectibleSpawned = 0;
+            currentLevelCollectibleCollected = 0;
+            currentLevelCollectibleMissed = 0;
+            reviveInvincibleUntilMs = 0;
+
+            saveGameState();
+            updateMobileControlsVisibility();
+            initGameWithLoading({ text: '正在重新开始本关...', autoStart: true });
+        }
+
         function continueAfterRevive() {
             if (reviveChances <= 0) return;
 
@@ -2961,6 +2988,7 @@
             if (reviveModalEl) {
                 reviveModalEl.style.display = 'none';
             }
+            saveGameState();
             updateMobileControlsVisibility();
         }
 
@@ -2973,6 +3001,18 @@
                     // 只加载关卡和分数，不加载其他状态
                     game.level = state.level || 1;
                     game.score = state.score || 0;
+                    reviveChances = Number.isFinite(state.reviveChances) ? Math.max(0, Math.floor(state.reviveChances)) : 0;
+
+                    perfectLevelsAchieved.clear();
+                    if (Array.isArray(state.perfectLevelsAchieved)) {
+                        state.perfectLevelsAchieved.forEach((value) => {
+                            const level = Number(value);
+                            if (Number.isInteger(level) && level > 0) {
+                                perfectLevelsAchieved.add(level);
+                            }
+                        });
+                    }
+
                     // 重置其他状态
                     game.gameStarted = false;
                     game.gameOver = false;
@@ -2990,6 +3030,8 @@
 
                     console.log('Successfully loaded game state:', { level: game.level, score: game.score });
                 } else {
+                    reviveChances = 0;
+                    perfectLevelsAchieved.clear();
                     console.log('No saved game state found');
                 }
             } catch (error) {
@@ -3001,6 +3043,8 @@
                 game.gameOver = false;
                 game.distance = 0;
                 game.paused = false;
+                reviveChances = 0;
+                perfectLevelsAchieved.clear();
             }
         }
 
@@ -3009,12 +3053,54 @@
             const state = {
                 level: game.level,
                 score: game.score,
+                reviveChances,
+                perfectLevelsAchieved: Array.from(perfectLevelsAchieved),
                 gameStarted: game.gameStarted,
                 gameOver: game.gameOver,
                 paused: game.paused
             };
             localStorage.setItem('gameState', JSON.stringify(state));
             console.log('Game state saved:', state);
+        }
+
+        function isPanelVisible(id) {
+            const el = document.getElementById(id);
+            if (!el) return false;
+            return getComputedStyle(el).display !== 'none';
+        }
+
+        function handleSpaceAction() {
+            if (isPanelVisible('start-screen')) {
+                startGame();
+                return true;
+            }
+
+            if (isPanelVisible('revive-modal')) {
+                continueAfterRevive();
+                return true;
+            }
+
+            if (isPanelVisible('level-complete')) {
+                nextLevel();
+                return true;
+            }
+
+            if (isPanelVisible('game-over')) {
+                restartGame();
+                return true;
+            }
+
+            if (isPanelVisible('pause-menu')) {
+                resumeGame();
+                return true;
+            }
+
+            if (game.gameStarted && !game.gameOver) {
+                togglePause();
+                return true;
+            }
+
+            return false;
         }
 
         // 暂停/继续游戏
@@ -3152,10 +3238,14 @@
             keys[e.key.toLowerCase()] = true;
             keys[e.code.toLowerCase()] = true;
 
-            // 按空格键暂停游戏
+            // 按空格键根据当前界面执行对应操作
             if (e.code === 'Space') {
                 e.preventDefault(); // 防止空格键默认行为
-                togglePause();
+                if (e.repeat) {
+                    return;
+                }
+                handleSpaceAction();
+                return;
             }
 
             // W/↑ 跳跃（只能单段跳）
