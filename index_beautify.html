@@ -649,12 +649,59 @@
     let currentLevelCollectibleMissed = 0;
         let reviveInvincibleUntilMs = 0;
         const perfectLevelsAchieved = new Set();
+        const blueCollectibleNormalRatio = 20;
+        const blueCollectibleSpawnProbability = 1 / (blueCollectibleNormalRatio + 1);
+        const sprintDistanceSeconds = 10;
+        const sprintBoostMultiplier = 2;
+        const sprintSlowdownTailRatio = 0.2;
+        let sprintDistanceRemaining = 0;
+        let sprintDistanceBudget = 0;
+        let sprintSpeedMultiplier = 1;
 
         function hasPerfectGrandSlamFirstNine() {
             for (let level = 1; level <= 9; level++) {
                 if (!perfectLevelsAchieved.has(level)) return false;
             }
             return true;
+        }
+
+        function getCurrentLevelBaseSpeed() {
+            const levelIndex = Math.max(0, Math.min(levels.length - 1, game.level - 1));
+            const levelSpeed = levels[levelIndex] && Number.isFinite(levels[levelIndex].speed)
+                ? levels[levelIndex].speed
+                : config.speed;
+            return Math.max(0, levelSpeed);
+        }
+
+        function getSprintDistanceBudget(baseSpeed = getCurrentLevelBaseSpeed()) {
+            const safeSpeed = Math.max(0, baseSpeed);
+            return safeSpeed * (sprintDistanceSeconds / config.fixedTimeStep);
+        }
+
+        function activateOrRefreshSprint() {
+            sprintDistanceBudget = getSprintDistanceBudget();
+            sprintDistanceRemaining = sprintDistanceBudget;
+            sprintSpeedMultiplier = sprintBoostMultiplier;
+        }
+
+        function clearSprintState() {
+            sprintDistanceRemaining = 0;
+            sprintDistanceBudget = 0;
+            sprintSpeedMultiplier = 1;
+        }
+
+        function getSprintMultiplier() {
+            if (sprintDistanceRemaining <= 0 || sprintDistanceBudget <= 0) {
+                return 1;
+            }
+
+            const remainRatio = Math.max(0, Math.min(1, sprintDistanceRemaining / sprintDistanceBudget));
+            if (remainRatio > sprintSlowdownTailRatio) {
+                return sprintBoostMultiplier;
+            }
+
+            const tailProgress = Math.max(0, Math.min(1, remainRatio / sprintSlowdownTailRatio));
+            return 1 + (sprintBoostMultiplier - 1) * smoothstep01(tailProgress);
         }
 
         function disposeSceneResources(targetScene) {
@@ -829,6 +876,7 @@
             currentLevelCollectibleCollected = 0;
             currentLevelCollectibleMissed = 0;
             reviveInvincibleUntilMs = 0;
+            clearSprintState();
 
             const levelBonusTip = document.getElementById('level-bonus-tip');
             if (levelBonusTip) {
@@ -1023,6 +1071,36 @@
                 return tex;
             };
 
+            const createSprintFlowTexture = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 64;
+                canvas.height = 512;
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                for (let y = 0; y < canvas.height; y++) {
+                    const t = y / canvas.height;
+                    const fadeHead = Math.pow(1 - t, 0.35);
+                    const fadeTail = Math.pow(1 - t, 1.45);
+                    const lineAlpha = Math.max(0, Math.min(1, fadeHead * fadeTail));
+                    const grad = ctx.createLinearGradient(0, 0, canvas.width, 0);
+                    grad.addColorStop(0, 'rgba(110,220,255,0)');
+                    grad.addColorStop(0.28, `rgba(126,232,255,${lineAlpha * 0.34})`);
+                    grad.addColorStop(0.5, `rgba(228,250,255,${lineAlpha * 0.62})`);
+                    grad.addColorStop(0.72, `rgba(126,232,255,${lineAlpha * 0.34})`);
+                    grad.addColorStop(1, 'rgba(110,220,255,0)');
+                    ctx.fillStyle = grad;
+                    ctx.fillRect(0, y, canvas.width, 1);
+                }
+
+                const tex = new THREE.CanvasTexture(canvas);
+                tex.wrapS = THREE.ClampToEdgeWrapping;
+                tex.wrapT = THREE.RepeatWrapping;
+                tex.repeat.set(1, 1.35);
+                applyTextureClarity(tex, { isDynamic: true });
+                return tex;
+            };
+
             const ballGroup = new THREE.Group();
             const surfaceMap = createBallSurfaceTexture();
 
@@ -1063,12 +1141,114 @@
             );
             ring.rotation.x = Math.PI / 2;
 
+            const createSprintFlowTexture = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 128;
+                canvas.height = 512;
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                for (let y = 0; y < canvas.height; y++) {
+                new THREE.SphereGeometry(0.68, 28, 22, 0, Math.PI * 2, 0, Math.PI * 0.72),
+                    const head = Math.max(0, 1 - t);
+                    const alpha = Math.pow(head, 1.4);
+                    const grad = ctx.createLinearGradient(0, 0, canvas.width, 0);
+                    grad.addColorStop(0, 'rgba(130, 220, 255, 0)');
+                    grad.addColorStop(0.35, `rgba(125, 225, 255, ${alpha * 0.38})`);
+                    grad.addColorStop(0.5, `rgba(230, 250, 255, ${alpha * 0.8})`);
+                    depthTest: true,
+                    side: THREE.DoubleSide
+                    grad.addColorStop(1, 'rgba(130, 220, 255, 0)');
+                    ctx.fillStyle = grad;
+            auraShell.rotation.x = Math.PI / 2;
+            auraShell.position.z = 0.06;
+
+            const auraTrailStreaks = [];
+            const streakConfig = [
+                { x: -0.2, y: 0.03, z: -0.3, yaw: -0.18, phase: 0.08, flowSpeed: 1.55, baseOpacity: 0.28 },
+                { x: -0.08, y: 0.09, z: -0.25, yaw: -0.08, phase: 0.24, flowSpeed: 1.75, baseOpacity: 0.24 },
+                { x: 0.08, y: 0.09, z: -0.25, yaw: 0.08, phase: 0.42, flowSpeed: 1.62, baseOpacity: 0.24 },
+                { x: 0.2, y: 0.03, z: -0.3, yaw: 0.18, phase: 0.62, flowSpeed: 1.48, baseOpacity: 0.28 },
+                { x: 0, y: -0.03, z: -0.32, yaw: 0, phase: 0.82, flowSpeed: 1.9, baseOpacity: 0.2 }
+            ];
+
+            streakConfig.forEach((cfg) => {
+                const flowTex = createSprintFlowTexture();
+                flowTex.offset.y = cfg.phase;
+                const streak = new THREE.Mesh(
+                    new THREE.PlaneGeometry(0.17, 2.1),
+                    new THREE.MeshBasicMaterial({
+                        map: flowTex,
+                        color: 0x8cecff,
+                        transparent: true,
+                        opacity: 0,
+                        blending: THREE.AdditiveBlending,
+                        depthWrite: false,
+                        depthTest: true,
+                        side: THREE.DoubleSide
+                    })
+                );
+                streak.rotation.x = Math.PI / 2;
+                streak.rotation.y = cfg.yaw;
+                streak.position.set(cfg.x, cfg.y, cfg.z);
+                streak.userData.baseX = cfg.x;
+                streak.userData.baseY = cfg.y;
+                streak.userData.baseZ = cfg.z;
+                streak.userData.phase = cfg.phase;
+                streak.userData.flowSpeed = cfg.flowSpeed;
+                streak.userData.baseOpacity = cfg.baseOpacity;
+                streak.userData.baseWidth = 1;
+                streak.userData.baseLength = 1;
+                auraGroup.add(streak);
+                auraTrailStreaks.push(streak);
+            });
+
+
+            const auraTailMaterials = [];
+            const tailTexture = createSprintFlowTexture();
+            const stripCount = isMobile ? 4 : 6;
+
+            for (let i = 0; i < stripCount; i++) {
+                const stripMat = new THREE.MeshBasicMaterial({
+                    map: tailTexture.clone(),
+                    color: 0xa5efff,
+                    transparent: true,
+                    opacity: 0,
+                    blending: THREE.AdditiveBlending,
+            ballGroup.userData.sprintAuraTrailStreaks = auraTrailStreaks;
+                    side: THREE.DoubleSide
+                });
+                stripMat.map.wrapS = THREE.ClampToEdgeWrapping;
+                stripMat.map.wrapT = THREE.RepeatWrapping;
+                stripMat.map.repeat.set(1, 1.4);
+
+                const strip = new THREE.Mesh(
+                    new THREE.PlaneGeometry(0.16, 2.4),
+                    stripMat
+                );
+                strip.rotation.x = Math.PI / 2;
+                strip.position.set(0, 0.02, -0.75);
+                auraTailGroup.add(strip);
+                auraTailStrips.push(strip);
+                auraTailMaterials.push(stripMat);
+            }
+
+            auraGroup.add(auraShell);
+            auraGroup.add(auraTailGroup);
+            auraGroup.visible = false;
+
             ballGroup.add(core);
             ballGroup.add(glowShell);
             ballGroup.add(ring);
             ballGroup.userData.ring = ring;
             ballGroup.userData.radius = 0.5;
             ballGroup.userData.core = core;
+            ballGroup.userData.sprintAuraGroup = auraGroup;
+            ballGroup.userData.sprintAuraShell = auraShell;
+            ballGroup.userData.sprintAuraTailGroup = auraTailGroup;
+            ballGroup.userData.sprintAuraTailStrips = auraTailStrips;
+            ballGroup.userData.sprintAuraTailMaterials = auraTailMaterials;
+            ballGroup.userData.sprintAuraForward = new THREE.Vector3(0, 0, 1);
 
             ball = ballGroup;
             ball.position.set(0, config.groundY, 0);
@@ -1077,6 +1257,7 @@
             lastBallX = ball.position.x;
             lastCollisionBallPos = null;
             scene.add(ball);
+            scene.add(auraGroup);
 
             createBallTrailSystem();
         }
@@ -1235,6 +1416,69 @@
             // 淡色 + 轻微呼吸，不抢主体
             const baseOpacity = isMoving ? 0.38 : 0.2;
             mesh.material.opacity = baseOpacity + 0.045 * Math.sin(timeSec * 6.0);
+
+            const auraGroup = ball.userData.sprintAuraGroup;
+            const auraShell = ball.userData.sprintAuraShell;
+            const auraTrailStreaks = ball.userData.sprintAuraTrailStreaks || [];
+            if (!auraGroup || !auraShell) return;
+
+            const remainRatio = sprintDistanceBudget > 0
+                ? Math.max(0, Math.min(1, sprintDistanceRemaining / sprintDistanceBudget))
+                : 0;
+            const visualStrength = remainRatio > sprintSlowdownTailRatio
+                ? 1
+                : smoothstep01(Math.max(0, Math.min(1, remainRatio / sprintSlowdownTailRatio)));
+
+            if (sprintDistanceRemaining <= 0 || visualStrength <= 0.001) {
+                auraGroup.visible = false;
+                auraShell.material.opacity = 0;
+                auraTrailStreaks.forEach((streak) => {
+                    streak.material.opacity = 0;
+                });
+                return;
+            }
+
+            auraGroup.visible = true;
+            const forward = (ballTrailDirection && ballTrailDirection.lengthSq() > 1e-6)
+                ? ballTrailDirection.clone().normalize()
+                : new THREE.Vector3(0, 0, 1);
+            const inverseRoll = ball.quaternion.clone().invert();
+            const alignQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), forward);
+            auraGroup.quaternion.copy(inverseRoll).multiply(alignQuat);
+
+            const flicker = 0.94 + 0.06 * Math.sin(timeSec * 8.5);
+            auraShell.material.opacity = (0.16 + 0.1 * visualStrength) * visualStrength * flicker;
+            auraShell.scale.set(
+                1 + 0.11 * visualStrength,
+                1 + 0.06 * visualStrength,
+                1 + 0.26 * visualStrength
+            );
+
+            auraTrailStreaks.forEach((streak, idx) => {
+                const flowTex = streak.material.map;
+                const phase = streak.userData.phase || 0;
+                const flowSpeed = streak.userData.flowSpeed || 1.4;
+                if (flowTex) {
+                    const flowOffset = phase - timeSec * flowSpeed * (0.55 + 0.45 * visualStrength);
+                    flowTex.offset.y = ((flowOffset % 1) + 1) % 1;
+                }
+
+                const shimmer = 0.9 + 0.1 * Math.sin(timeSec * 12 + phase * 6 + idx * 0.8);
+                streak.material.opacity = (streak.userData.baseOpacity || 0.2) * visualStrength * shimmer;
+
+                const widthScale = 0.55 + 0.85 * visualStrength;
+                const lengthScale = 0.45 + 1.35 * visualStrength;
+                streak.scale.set(
+                    (streak.userData.baseWidth || 1) * widthScale,
+                    (streak.userData.baseLength || 1) * lengthScale,
+                    1
+                );
+
+                const spread = 0.45 + 0.55 * visualStrength;
+                streak.position.x = (streak.userData.baseX || 0) * spread;
+                streak.position.y = streak.userData.baseY || 0;
+                streak.position.z = (streak.userData.baseZ || -0.28) - 0.65 * visualStrength;
+            });
         }
 
         // 创建道路
@@ -1943,6 +2187,7 @@
             const collectibleMinRowGap = 4.2;
             const collectibleNearRowGap = 6.2;
             const collectibleMinXGapWhenNearRow = 2.2;
+            const rollCollectibleType = () => Math.random() < blueCollectibleSpawnProbability ? 'blue' : 'normal';
 
             const canPlaceCollectibleAt = (x, z, { allowObstacleOverlap = false } = {}) => {
                 if (z >= -15) return false;
@@ -1987,13 +2232,16 @@
                 if (!canPlaceCollectibleAt(x, z, options)) {
                     return null;
                 }
-                const collectible = createCollectible();
+                const collectibleType = options.collectibleType || 'normal';
+                const collectible = createCollectible(collectibleType);
                 collectible.userData.finalY = y;
                 collectible.userData.hiddenY = -1.8;
                 collectible.userData.fadeStartZ = fadeStartZ;
                 collectible.userData.fadeEndZ = fadeEndZ;
                 collectible.userData.baseScale = baseScale;
                 collectible.userData.collected = false;
+                collectible.userData.collectibleType = collectibleType;
+                collectible.userData.scoreValue = 10;
                 collectible.position.set(x, collectible.userData.hiddenY, z);
                 collectible.scale.set(baseScale, baseScale, baseScale);
                 collectibles.push(collectible);
@@ -2052,7 +2300,7 @@
                                         1.1,
                                         emergenceStartZ,
                                         emergenceEndZ,
-                                        { allowObstacleOverlap: true }
+                                        { allowObstacleOverlap: true, collectibleType: rollCollectibleType() }
                                     );
                                 }
                             }
@@ -2127,7 +2375,7 @@
                         1.1,
                         emergenceStartZ,
                         emergenceEndZ,
-                        { allowObstacleOverlap: true }
+                        { allowObstacleOverlap: true, collectibleType: rollCollectibleType() }
                     );
                 }
             }
@@ -2150,7 +2398,15 @@
 
                 // 积分放在路段中间，添加随机偏移
                 const z = startZ - segmentLength / 2 + (Math.random() - 0.5) * 3;
-                createCollectibleAt(x, z, 1, 1.2, emergenceStartZ, emergenceEndZ);
+                createCollectibleAt(
+                    x,
+                    z,
+                    1,
+                    1.2,
+                    emergenceStartZ,
+                    emergenceEndZ,
+                    { collectibleType: rollCollectibleType() }
+                );
             }
 
             // 第四关及以上，额外增加积分生成机会
@@ -2175,7 +2431,15 @@
 
                 // 积分放在路段中，与第一个积分位置不同
                 const z = startZ - segmentLength / 2 + (Math.random() - 0.5) * 6;
-                createCollectibleAt(x, z, 1, 1.2, emergenceStartZ, emergenceEndZ);
+                createCollectibleAt(
+                    x,
+                    z,
+                    1,
+                    1.2,
+                    emergenceStartZ,
+                    emergenceEndZ,
+                    { collectibleType: rollCollectibleType() }
+                );
             }
         }
 
@@ -2215,8 +2479,25 @@
         }
 
         // 创建积分
-        function createCollectible() {
+        function createCollectible(collectibleType = 'normal') {
             const star = new THREE.Group();
+            const isBlueCollectible = collectibleType === 'blue';
+            const collectiblePalette = isBlueCollectible
+                ? {
+                    rayColor: 0xddfbff,
+                    rayEmissive: 0x50d8ff,
+                    centerColor: 0xeeffff,
+                    centerEmissive: 0x60dfff,
+                    sparkleColor: 0x8cecff
+                }
+                : {
+                    rayColor: 0xffffff,
+                    rayEmissive: 0xfff4d7,
+                    centerColor: 0xffffff,
+                    centerEmissive: 0xffedb0,
+                    sparkleColor: 0xffffff
+                };
+
             const createPointedRayGeometry = (length, width, depth) => {
                 const shape = new THREE.Shape();
                 shape.moveTo(0, length / 2);
@@ -2250,9 +2531,9 @@
             };
 
             const rayMaterial = new THREE.MeshStandardMaterial({
-                color: 0xffffff,
-                emissive: 0xfff4d7,
-                emissiveIntensity: 1.2,
+                color: collectiblePalette.rayColor,
+                emissive: collectiblePalette.rayEmissive,
+                emissiveIntensity: isBlueCollectible ? 1.15 : 1.2,
                 roughness: 0.12,
                 metalness: 0.22,
                 transparent: true,
@@ -2277,9 +2558,9 @@
             const center = new THREE.Mesh(
                 new THREE.SphereGeometry(0.08, 12, 12),
                 new THREE.MeshStandardMaterial({
-                    color: 0xffffff,
-                    emissive: 0xffedb0,
-                    emissiveIntensity: 0.95,
+                    color: collectiblePalette.centerColor,
+                    emissive: collectiblePalette.centerEmissive,
+                    emissiveIntensity: isBlueCollectible ? 1.05 : 0.95,
                     transparent: true,
                     opacity: 0.9
                 })
@@ -2294,7 +2575,7 @@
                 const sparkle = new THREE.Sprite(
                     new THREE.SpriteMaterial({
                         map: sparkleTexture,
-                        color: 0xffffff,
+                        color: collectiblePalette.sparkleColor,
                         transparent: true,
                         opacity: 0.36,
                         depthWrite: false,
@@ -2319,18 +2600,22 @@
             });
 
             star.userData.collectibleRadius = 0.26;
+            star.userData.collectibleType = collectibleType;
             return star;
         }
 
-        function spawnCollectibleBurst(position) {
+        function spawnCollectibleBurst(position, collectibleType = 'normal') {
             const burst = new THREE.Group();
+            const isBlueCollectible = collectibleType === 'blue';
+            const burstColor = isBlueCollectible ? 0xd9faff : 0xfff0ad;
+            const burstEmissive = isBlueCollectible ? 0x58dcff : 0xffc65b;
             const count = isMobile ? 7 : 10;
             for (let i = 0; i < count; i++) {
                 const ray = new THREE.Mesh(
                     new THREE.BoxGeometry(0.04, 0.3 + Math.random() * 0.2, 0.04),
                     new THREE.MeshStandardMaterial({
-                        color: 0xfff0ad,
-                        emissive: 0xffc65b,
+                        color: burstColor,
+                        emissive: burstEmissive,
                         emissiveIntensity: 1,
                         transparent: true,
                         opacity: 0.95
@@ -2385,7 +2670,15 @@
             const nowSec = nowMs * 0.001;
             const shouldUpdateVisualFx = !isMobile || (mobileVisualFrameCounter % mobileVisualEffectStep === 0);
 
-            game.distance += config.speed;
+            const frameDistance = config.speed;
+            if (sprintDistanceRemaining > 0) {
+                sprintDistanceRemaining = Math.max(0, sprintDistanceRemaining - frameDistance);
+                if (sprintDistanceRemaining <= 0) {
+                    clearSprintState();
+                }
+            }
+
+            game.distance += frameDistance;
 
             // 检查最大距离
             if (game.distance >= config.maxDistance) {
@@ -2571,7 +2864,10 @@
         // 碰撞检测
         function checkCollisions() {
             if (game.gameOver) return;
-            if (performance.now() < reviveInvincibleUntilMs) return;
+            const nowMs = performance.now();
+            const invincibleByRevive = nowMs < reviveInvincibleUntilMs;
+            const invincibleBySprint = sprintDistanceRemaining > 0;
+            const ignoreObstacleDamage = invincibleByRevive || invincibleBySprint;
 
             // 小球的边界球半径
             const ballRadius = ball.userData.radius || 0.5;
@@ -2598,7 +2894,8 @@
 
             // 检测障碍物碰撞 - 严格判定，碰到即算
             let collisionDetected = false;
-            obstacles.forEach(obstacle => {
+            if (!ignoreObstacleDamage) {
+                obstacles.forEach(obstacle => {
                 const scale = obstacle.scale;
                 const position = obstacle.position;
                 const collider = obstacle.userData.collider || { type: 'box', halfX: 0.5, halfY: 0.5, halfZ: 0.5 };
@@ -2750,7 +3047,8 @@
                         collisionDetected = true;
                     }
                 }
-            });
+                });
+            }
 
             if (collisionDetected) {
                 endGame();
@@ -2771,11 +3069,21 @@
                 // 严格判定：小球半径 + 积分球半径 = 碰撞
                 // 只要两个球体表面接触即算收集
                 if (distance < ballRadius + collectibleRadius) {
-                    game.score += 10;  // 改回10分
+                    const collectibleType = collectible.userData.collectibleType || 'normal';
+                    const scoreValue = Number.isFinite(collectible.userData.scoreValue)
+                        ? collectible.userData.scoreValue
+                        : 10;
+
+                    game.score += scoreValue;
                     currentLevelCollectibleCollected++;
                     collectible.userData.collected = true;
                     document.getElementById('score').textContent = `分数: ${game.score}`;
-                    spawnCollectibleBurst(collectible.position);
+                    spawnCollectibleBurst(collectible.position, collectibleType);
+
+                    if (collectibleType === 'blue') {
+                        activateOrRefreshSprint();
+                    }
+
                     scene.remove(collectible);
                     collectibles.splice(i, 1);
 
@@ -2882,6 +3190,7 @@
                 levelBonusTipEl.style.display = 'none';
                 levelBonusTipEl.textContent = '';
             }
+            clearSprintState();
             game.level++;
             if (game.level > levels.length) game.level = levels.length;
             // 重置分数，因为进入新关卡
@@ -2957,6 +3266,7 @@
             currentLevelCollectibleCollected = 0;
             currentLevelCollectibleMissed = 0;
             reviveInvincibleUntilMs = 0;
+            clearSprintState();
             perfectLevelsAchieved.clear();
             // 清除保存的游戏状态
             localStorage.removeItem('gameState');
@@ -2981,6 +3291,7 @@
             currentLevelCollectibleCollected = 0;
             currentLevelCollectibleMissed = 0;
             reviveInvincibleUntilMs = 0;
+            clearSprintState();
 
             saveGameState();
             updateMobileControlsVisibility();
@@ -3188,13 +3499,14 @@
             const dt = Math.min(deltaTime, 0.1);
 
             if (game.gameStarted && !game.gameOver && !game.paused && ball) {
-                // 使用固定时间步长更新
-                const fixedSpeed = config.speed * (dt / config.fixedTimeStep);
-                const fixedMoveSpeed = config.moveSpeed * (dt / config.fixedTimeStep);
-
                 // 保存原始速度
                 const originalSpeed = config.speed;
                 const originalMoveSpeed = config.moveSpeed;
+                sprintSpeedMultiplier = getSprintMultiplier();
+
+                // 使用固定时间步长更新
+                const fixedSpeed = originalSpeed * sprintSpeedMultiplier * (dt / config.fixedTimeStep);
+                const fixedMoveSpeed = originalMoveSpeed * (dt / config.fixedTimeStep);
 
                 // 使用固定速度更新
                 config.speed = fixedSpeed;
