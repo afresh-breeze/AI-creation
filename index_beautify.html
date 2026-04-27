@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 
 <head>
@@ -1073,22 +1073,19 @@
 
             const createSprintFlowTexture = () => {
                 const canvas = document.createElement('canvas');
-                canvas.width = 64;
+                canvas.width = 96;
                 canvas.height = 512;
                 const ctx = canvas.getContext('2d');
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
 
                 for (let y = 0; y < canvas.height; y++) {
-                    const t = y / canvas.height;
-                    const fadeHead = Math.pow(1 - t, 0.35);
-                    const fadeTail = Math.pow(1 - t, 1.45);
-                    const lineAlpha = Math.max(0, Math.min(1, fadeHead * fadeTail));
+                    const v = 1 - y / canvas.height;
+                    const alpha = Math.pow(v, 1.35);
                     const grad = ctx.createLinearGradient(0, 0, canvas.width, 0);
-                    grad.addColorStop(0, 'rgba(110,220,255,0)');
-                    grad.addColorStop(0.28, `rgba(126,232,255,${lineAlpha * 0.34})`);
-                    grad.addColorStop(0.5, `rgba(228,250,255,${lineAlpha * 0.62})`);
-                    grad.addColorStop(0.72, `rgba(126,232,255,${lineAlpha * 0.34})`);
-                    grad.addColorStop(1, 'rgba(110,220,255,0)');
+                    grad.addColorStop(0, 'rgba(110, 220, 255, 0)');
+                    grad.addColorStop(0.32, `rgba(120, 225, 255, ${alpha * 0.33})`);
+                    grad.addColorStop(0.5, `rgba(230, 250, 255, ${alpha * 0.54})`);
+                    grad.addColorStop(0.68, `rgba(120, 225, 255, ${alpha * 0.33})`);
+                    grad.addColorStop(1, 'rgba(110, 220, 255, 0)');
                     ctx.fillStyle = grad;
                     ctx.fillRect(0, y, canvas.width, 1);
                 }
@@ -1096,7 +1093,7 @@
                 const tex = new THREE.CanvasTexture(canvas);
                 tex.wrapS = THREE.ClampToEdgeWrapping;
                 tex.wrapT = THREE.RepeatWrapping;
-                tex.repeat.set(1, 1.35);
+                tex.repeat.set(1, 1.8);
                 applyTextureClarity(tex, { isDynamic: true });
                 return tex;
             };
@@ -1141,45 +1138,55 @@
             );
             ring.rotation.x = Math.PI / 2;
 
-            const createSprintFlowTexture = () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = 128;
-                canvas.height = 512;
-                const ctx = canvas.getContext('2d');
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const auraGroup = new THREE.Group();
+            const auraShellMain = new THREE.Mesh(
+                new THREE.SphereGeometry(0.74, 30, 24),
+                new THREE.MeshBasicMaterial({
+                    color: 0x9defff,
+                    transparent: true,
+                    opacity: 0,
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false,
+                    depthTest: true
+                })
+            );
+            auraShellMain.position.set(0, 0, 0.12);
+            auraShellMain.scale.set(0.98, 0.98, 0.72);
 
-                for (let y = 0; y < canvas.height; y++) {
-                new THREE.SphereGeometry(0.68, 28, 22, 0, Math.PI * 2, 0, Math.PI * 0.72),
-                    const head = Math.max(0, 1 - t);
-                    const alpha = Math.pow(head, 1.4);
-                    const grad = ctx.createLinearGradient(0, 0, canvas.width, 0);
-                    grad.addColorStop(0, 'rgba(130, 220, 255, 0)');
-                    grad.addColorStop(0.35, `rgba(125, 225, 255, ${alpha * 0.38})`);
-                    grad.addColorStop(0.5, `rgba(230, 250, 255, ${alpha * 0.8})`);
-                    depthTest: true,
-                    side: THREE.DoubleSide
-                    grad.addColorStop(1, 'rgba(130, 220, 255, 0)');
-                    ctx.fillStyle = grad;
-            auraShell.rotation.x = Math.PI / 2;
-            auraShell.position.z = 0.06;
+            const auraShellEdge = new THREE.Mesh(
+                new THREE.SphereGeometry(0.79, 30, 24),
+                new THREE.MeshBasicMaterial({
+                    color: 0x7fe7ff,
+                    transparent: true,
+                    opacity: 0,
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false,
+                    depthTest: true
+                })
+            );
+            auraShellEdge.position.set(0, 0, 0.18);
+            auraShellEdge.scale.set(1.02, 1.01, 0.68);
 
-            const auraTrailStreaks = [];
-            const streakConfig = [
-                { x: -0.2, y: 0.03, z: -0.3, yaw: -0.18, phase: 0.08, flowSpeed: 1.55, baseOpacity: 0.28 },
-                { x: -0.08, y: 0.09, z: -0.25, yaw: -0.08, phase: 0.24, flowSpeed: 1.75, baseOpacity: 0.24 },
-                { x: 0.08, y: 0.09, z: -0.25, yaw: 0.08, phase: 0.42, flowSpeed: 1.62, baseOpacity: 0.24 },
-                { x: 0.2, y: 0.03, z: -0.3, yaw: 0.18, phase: 0.62, flowSpeed: 1.48, baseOpacity: 0.28 },
-                { x: 0, y: -0.03, z: -0.32, yaw: 0, phase: 0.82, flowSpeed: 1.9, baseOpacity: 0.2 }
-            ];
+            const flowTexture = createSprintFlowTexture();
+            const flowStripCount = isMobile ? 4 : 6;
+            const flowStrips = [];
 
-            streakConfig.forEach((cfg) => {
-                const flowTex = createSprintFlowTexture();
-                flowTex.offset.y = cfg.phase;
-                const streak = new THREE.Mesh(
-                    new THREE.PlaneGeometry(0.17, 2.1),
+            for (let i = 0; i < flowStripCount; i++) {
+                const lane = i - (flowStripCount - 1) * 0.5;
+                const laneFactor = lane / Math.max(1, flowStripCount - 1);
+                const length = 2.35 - Math.abs(laneFactor) * 0.44;
+                const width = 0.12 + (0.02 * (1 - Math.abs(laneFactor)));
+                const stripTexture = flowTexture.clone();
+                stripTexture.wrapS = THREE.ClampToEdgeWrapping;
+                stripTexture.wrapT = THREE.RepeatWrapping;
+                stripTexture.repeat.set(1, 1.8);
+                stripTexture.needsUpdate = true;
+
+                const strip = new THREE.Mesh(
+                    new THREE.PlaneGeometry(width, length),
                     new THREE.MeshBasicMaterial({
-                        map: flowTex,
-                        color: 0x8cecff,
+                        map: stripTexture,
+                        color: 0x9beeff,
                         transparent: true,
                         opacity: 0,
                         blending: THREE.AdditiveBlending,
@@ -1188,53 +1195,17 @@
                         side: THREE.DoubleSide
                     })
                 );
-                streak.rotation.x = Math.PI / 2;
-                streak.rotation.y = cfg.yaw;
-                streak.position.set(cfg.x, cfg.y, cfg.z);
-                streak.userData.baseX = cfg.x;
-                streak.userData.baseY = cfg.y;
-                streak.userData.baseZ = cfg.z;
-                streak.userData.phase = cfg.phase;
-                streak.userData.flowSpeed = cfg.flowSpeed;
-                streak.userData.baseOpacity = cfg.baseOpacity;
-                streak.userData.baseWidth = 1;
-                streak.userData.baseLength = 1;
-                auraGroup.add(streak);
-                auraTrailStreaks.push(streak);
-            });
 
-
-            const auraTailMaterials = [];
-            const tailTexture = createSprintFlowTexture();
-            const stripCount = isMobile ? 4 : 6;
-
-            for (let i = 0; i < stripCount; i++) {
-                const stripMat = new THREE.MeshBasicMaterial({
-                    map: tailTexture.clone(),
-                    color: 0xa5efff,
-                    transparent: true,
-                    opacity: 0,
-                    blending: THREE.AdditiveBlending,
-            ballGroup.userData.sprintAuraTrailStreaks = auraTrailStreaks;
-                    side: THREE.DoubleSide
-                });
-                stripMat.map.wrapS = THREE.ClampToEdgeWrapping;
-                stripMat.map.wrapT = THREE.RepeatWrapping;
-                stripMat.map.repeat.set(1, 1.4);
-
-                const strip = new THREE.Mesh(
-                    new THREE.PlaneGeometry(0.16, 2.4),
-                    stripMat
-                );
-                strip.rotation.x = Math.PI / 2;
-                strip.position.set(0, 0.02, -0.75);
-                auraTailGroup.add(strip);
-                auraTailStrips.push(strip);
-                auraTailMaterials.push(stripMat);
+                strip.rotation.x = -Math.PI / 2;
+                strip.rotation.z = laneFactor * 0.28;
+                strip.position.set(lane * 0.15, 0.01 - Math.abs(laneFactor) * 0.015, -1.05 - Math.abs(laneFactor) * 0.12);
+                strip.userData.phase = i * 0.72;
+                flowStrips.push(strip);
+                auraGroup.add(strip);
             }
 
-            auraGroup.add(auraShell);
-            auraGroup.add(auraTailGroup);
+            auraGroup.add(auraShellMain);
+            auraGroup.add(auraShellEdge);
             auraGroup.visible = false;
 
             ballGroup.add(core);
@@ -1244,11 +1215,9 @@
             ballGroup.userData.radius = 0.5;
             ballGroup.userData.core = core;
             ballGroup.userData.sprintAuraGroup = auraGroup;
-            ballGroup.userData.sprintAuraShell = auraShell;
-            ballGroup.userData.sprintAuraTailGroup = auraTailGroup;
-            ballGroup.userData.sprintAuraTailStrips = auraTailStrips;
-            ballGroup.userData.sprintAuraTailMaterials = auraTailMaterials;
-            ballGroup.userData.sprintAuraForward = new THREE.Vector3(0, 0, 1);
+            ballGroup.userData.sprintAuraShellMain = auraShellMain;
+            ballGroup.userData.sprintAuraShellEdge = auraShellEdge;
+            ballGroup.userData.sprintAuraFlowStrips = flowStrips;
 
             ball = ballGroup;
             ball.position.set(0, config.groundY, 0);
@@ -1418,9 +1387,10 @@
             mesh.material.opacity = baseOpacity + 0.045 * Math.sin(timeSec * 6.0);
 
             const auraGroup = ball.userData.sprintAuraGroup;
-            const auraShell = ball.userData.sprintAuraShell;
-            const auraTrailStreaks = ball.userData.sprintAuraTrailStreaks || [];
-            if (!auraGroup || !auraShell) return;
+            const auraShellMain = ball.userData.sprintAuraShellMain;
+            const auraShellEdge = ball.userData.sprintAuraShellEdge;
+            const auraFlowStrips = ball.userData.sprintAuraFlowStrips || [];
+            if (!auraGroup || !auraShellMain || !auraShellEdge || auraFlowStrips.length === 0) return;
 
             const remainRatio = sprintDistanceBudget > 0
                 ? Math.max(0, Math.min(1, sprintDistanceRemaining / sprintDistanceBudget))
@@ -1431,53 +1401,46 @@
 
             if (sprintDistanceRemaining <= 0 || visualStrength <= 0.001) {
                 auraGroup.visible = false;
-                auraShell.material.opacity = 0;
-                auraTrailStreaks.forEach((streak) => {
-                    streak.material.opacity = 0;
+                auraShellMain.material.opacity = 0;
+                auraShellEdge.material.opacity = 0;
+                auraFlowStrips.forEach((strip) => {
+                    strip.material.opacity = 0;
                 });
                 return;
             }
 
             auraGroup.visible = true;
-            const forward = (ballTrailDirection && ballTrailDirection.lengthSq() > 1e-6)
+            const forward = ballTrailDirection && ballTrailDirection.lengthSq() > 1e-6
                 ? ballTrailDirection.clone().normalize()
                 : new THREE.Vector3(0, 0, 1);
-            const inverseRoll = ball.quaternion.clone().invert();
-            const alignQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), forward);
-            auraGroup.quaternion.copy(inverseRoll).multiply(alignQuat);
+            auraGroup.position.copy(ball.position);
+            auraGroup.position.y += 0.02;
+            auraGroup.rotation.set(0, Math.atan2(forward.x, forward.z), 0);
 
-            const flicker = 0.94 + 0.06 * Math.sin(timeSec * 8.5);
-            auraShell.material.opacity = (0.16 + 0.1 * visualStrength) * visualStrength * flicker;
-            auraShell.scale.set(
-                1 + 0.11 * visualStrength,
-                1 + 0.06 * visualStrength,
-                1 + 0.26 * visualStrength
+            const flicker = 0.92 + 0.08 * Math.sin(timeSec * 18);
+            auraShellMain.material.opacity = (0.14 + 0.05 * Math.sin(timeSec * 7.5)) * visualStrength * flicker;
+            auraShellEdge.material.opacity = (0.2 + 0.06 * Math.sin(timeSec * 10.5 + 0.8)) * visualStrength;
+
+            auraShellMain.scale.set(
+                0.96 + 0.08 * visualStrength,
+                0.96 + 0.05 * visualStrength,
+                0.7 + 0.24 * visualStrength
+            );
+            auraShellEdge.scale.set(
+                1 + 0.1 * visualStrength,
+                1 + 0.08 * visualStrength,
+                0.66 + 0.3 * visualStrength
             );
 
-            auraTrailStreaks.forEach((streak, idx) => {
-                const flowTex = streak.material.map;
-                const phase = streak.userData.phase || 0;
-                const flowSpeed = streak.userData.flowSpeed || 1.4;
-                if (flowTex) {
-                    const flowOffset = phase - timeSec * flowSpeed * (0.55 + 0.45 * visualStrength);
-                    flowTex.offset.y = ((flowOffset % 1) + 1) % 1;
+            const stripOpacityBase = (0.2 + 0.05 * Math.sin(timeSec * 9)) * visualStrength;
+            const stripLengthScale = 0.78 + 0.55 * visualStrength;
+            auraFlowStrips.forEach((strip, idx) => {
+                const pulse = 0.85 + 0.15 * Math.sin(timeSec * 12 + (strip.userData.phase || idx));
+                strip.material.opacity = stripOpacityBase * pulse;
+                strip.scale.set(1 + 0.14 * visualStrength, stripLengthScale, 1);
+                if (strip.material.map) {
+                    strip.material.map.offset.y = (strip.material.map.offset.y + dt * (1.25 + 2.4 * visualStrength)) % 1;
                 }
-
-                const shimmer = 0.9 + 0.1 * Math.sin(timeSec * 12 + phase * 6 + idx * 0.8);
-                streak.material.opacity = (streak.userData.baseOpacity || 0.2) * visualStrength * shimmer;
-
-                const widthScale = 0.55 + 0.85 * visualStrength;
-                const lengthScale = 0.45 + 1.35 * visualStrength;
-                streak.scale.set(
-                    (streak.userData.baseWidth || 1) * widthScale,
-                    (streak.userData.baseLength || 1) * lengthScale,
-                    1
-                );
-
-                const spread = 0.45 + 0.55 * visualStrength;
-                streak.position.x = (streak.userData.baseX || 0) * spread;
-                streak.position.y = streak.userData.baseY || 0;
-                streak.position.z = (streak.userData.baseZ || -0.28) - 0.65 * visualStrength;
             });
         }
 
@@ -3718,3 +3681,4 @@
 </body>
 
 </html>
+
