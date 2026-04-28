@@ -651,8 +651,9 @@
         const perfectLevelsAchieved = new Set();
         const blueCollectibleNormalRatio = 20;
         const blueCollectibleSpawnProbability = 1 / (blueCollectibleNormalRatio + 1);
-        const sprintDistanceSeconds = 10;
+        const sprintDistanceSeconds = 12;
         const sprintBoostMultiplier = 2;
+        const sprintMoveSpeedMultiplier = 1.5;
         const sprintSlowdownTailRatio = 0.2;
         let sprintDistanceRemaining = 0;
         let sprintDistanceBudget = 0;
@@ -3469,7 +3470,7 @@
 
                 // 使用固定时间步长更新
                 const fixedSpeed = originalSpeed * sprintSpeedMultiplier * (dt / config.fixedTimeStep);
-                const fixedMoveSpeed = originalMoveSpeed * (dt / config.fixedTimeStep);
+                const fixedMoveSpeed = originalMoveSpeed * (1 + (sprintSpeedMultiplier - 1) * sprintMoveSpeedMultiplier / sprintBoostMultiplier) * (dt / config.fixedTimeStep);
 
                 // 使用固定速度更新
                 config.speed = fixedSpeed;
