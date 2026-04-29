@@ -1,3 +1,3841 @@
+<<<<<<< HEAD
 "<!-- 2026-04-29 update -->" 
 "<!-- 2026-04-29 update -->" 
+"<!-- 2026-04-29 update -->" 
+=======
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>3D小球跑酷游戏</title>
+    <style>
+        :root {
+            --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+            --viewport-bottom-gap: 0px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: linear-gradient(180deg, #141b42 0%, #1a2352 42%, #1f2859 100%);
+            font-family: Arial, sans-serif;
+        }
+
+        body.mobile-device .keyboard-tip {
+            display: none;
+        }
+
+        .ui {
+            position: absolute;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            z-index: 100;
+        }
+
+        /* 悬浮概率标签（覆盖在画面之上） */
+        .prob-label {
+            position: absolute;
+            min-width: 44px;
+            padding: 0;
+            border-radius: 0;
+            font-size: 18px;
+            font-weight: 800;
+            text-align: center;
+            pointer-events: none;
+            z-index: 9999;
+            transform: translate(-50%, -50%);
+            background: transparent;
+            box-shadow: none;
+            white-space: nowrap;
+            transition: opacity 160ms linear;
+        }
+        .prob-label--red {
+            color: #ff7b7b;
+            text-shadow: 0 0 8px rgba(255, 105, 105, 0.95), 0 0 16px rgba(255, 105, 105, 0.45);
+        }
+
+        #info {
+            top: 10px;
+            left: 10px;
+        }
+
+        #score {
+            top: 10px;
+            right: 10px;
+            background: rgba(10, 18, 35, 0.55);
+            border: 1px solid rgba(140, 230, 255, 0.5);
+            color: #e7fbff;
+            box-shadow: 0 0 14px rgba(80, 210, 255, 0.45);
+            text-shadow: 0 0 8px rgba(155, 241, 255, 0.9);
+            animation: scoreTwinkle 1.3s ease-in-out infinite;
+        }
+
+        #level {
+            top: 50px;
+            right: 10px;
+        }
+
+        #debug {
+            top: 90px;
+            right: 10px;
+        }
+
+        /* 触摸控制区域 */
+        #touch-area {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: calc(150px + var(--safe-area-bottom) + var(--viewport-bottom-gap));
+            background: linear-gradient(to top, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0));
+            border: 2px solid rgba(255, 255, 255, 0.35);
+            border-bottom: none;
+            border-left: none;
+            border-right: none;
+            border-radius: 20px 20px 0 0;
+            box-shadow: inset 0 0 30px rgba(255, 255, 255, 0.12);
+            z-index: 50;
+            display: none;
+            pointer-events: none;
+        }
+
+        #mobile-jump-controls {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: calc(70px + var(--safe-area-bottom) + var(--viewport-bottom-gap));
+            z-index: 70;
+            pointer-events: none;
+            display: none;
+        }
+
+        body.mobile-controls-active #touch-area {
+            display: block;
+            pointer-events: auto;
+        }
+
+        body.mobile-controls-active #mobile-jump-controls {
+            display: block;
+        }
+
+        @supports (bottom: constant(safe-area-inset-bottom)) {
+            :root {
+                --safe-area-bottom: constant(safe-area-inset-bottom);
+            }
+        }
+
+        .jump-btn {
+            position: absolute;
+            width: 72px;
+            height: 72px;
+            border-radius: 50%;
+            border: 2px solid rgba(173, 216, 230, 0.5);
+  background: rgba(135, 206, 250, 0.2);
+            color: #ffffff;
+            font-size: 15px;
+            font-weight: 700;
+            letter-spacing: 1px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  box-shadow:
+    0 0 15px rgba(173, 216, 230, 0.3),
+    0 0 30px rgba(173, 216, 230, 0.2),
+    inset 0 0 10px rgba(135, 206, 250, 0.2);
+  pointer-events: auto;
+  user-select: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+        }
+
+.jump-btn:active {
+  transform: translateY(2px) scale(0.94);
+  box-shadow:
+    0 0 20px rgba(80, 180, 255, 0.6),
+    0 0 35px rgba(80, 180, 255, 0.3),
+    inset 0 0 10px rgba(135, 206, 250, 0.3);
+}
+
+        #jump-left {
+            left: 16px;
+        }
+
+        #jump-right {
+            right: 16px;
+        }
+
+        /* 响应式设计 */
+        @media screen and (max-width: 768px) {
+            .ui {
+                font-size: 12px;
+                padding: 8px;
+            }
+
+            #info {
+                top: 5px;
+                left: 5px;
+            }
+
+            #score {
+                top: 5px;
+                right: 5px;
+            }
+
+            #level {
+                top: 40px;
+                right: 5px;
+            }
+
+            #debug {
+                top: 75px;
+                right: 5px;
+            }
+
+            .jump-btn {
+                width: 64px;
+                height: 64px;
+                font-size: 13px;
+            }
+        }
+
+        /* 游戏结束和开始屏幕 */
+        #game-over,
+        #start-screen,
+        #level-complete,
+        #pause-menu {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 30px;
+            border-radius: 10px;
+            text-align: center;
+            z-index: 1000;
+            max-width: 90%;
+            width: 400px;
+        }
+
+        @media screen and (max-width: 480px) {
+
+            #game-over,
+            #start-screen,
+            #level-complete,
+            #pause-menu {
+                padding: 20px;
+                width: 90%;
+            }
+
+            h2 {
+                font-size: 20px;
+            }
+
+            p {
+                font-size: 14px;
+            }
+
+            button {
+                font-size: 14px;
+                padding: 8px 16px;
+            }
+        }
+
+        #game-over,
+        #start-screen,
+        #level-complete {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 30px;
+            border-radius: 10px;
+            text-align: center;
+            font-size: 18px;
+            z-index: 1000;
+        }
+
+        #game-over,
+        #level-complete {
+            display: none;
+        }
+
+        button {
+            margin: 10px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            color: white;
+        }
+
+        .btn-primary {
+            background: #3498db;
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+        }
+
+        .btn-success {
+            background: #4CAF50;
+        }
+
+        .rules {
+            text-align: left;
+            margin: 20px 0;
+            padding: 0 20px;
+        }
+
+        #model-loading {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 14px;
+            background: rgba(8, 12, 22, 0.78);
+            backdrop-filter: blur(2px);
+            -webkit-backdrop-filter: blur(2px);
+            z-index: 99999;
+            color: #e8f8ff;
+            font-size: 15px;
+            letter-spacing: 0.3px;
+        }
+
+        @media screen and (max-width: 768px) {
+            #model-loading {
+                font-size: 15px;
+                gap: 12px;
+            }
+
+            #model-loading .spinner {
+                width: 38px;
+                height: 38px;
+                border-width: 7px;
+            }
+        }
+
+        #model-loading .spinner {
+            width: 44px;
+            height: 44px;
+            display: none;
+            border: 8px solid rgba(110, 210, 255, 0.25);
+            border-top-color: #6ed2ff;
+            border-radius: 50%;
+            animation: modelSpin 0.85s linear infinite;
+            -webkit-animation: modelSpin 0.85s linear infinite;
+            animation-play-state: paused;
+            -webkit-animation-play-state: paused;
+            transform: translateZ(0);
+            will-change: transform;
+        }
+
+        #model-loading.is-loading .spinner {
+            display: block;
+            animation-play-state: running;
+            -webkit-animation-play-state: running;
+        }
+
+        #model-loading .loading-tip {
+            opacity: 0.92;
+            text-shadow: 0 0 8px rgba(110, 210, 255, 0.25);
+        }
+
+        @keyframes modelSpin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        @keyframes scoreTwinkle {
+            0% {
+                transform: scale(1);
+                opacity: 0.9;
+            }
+
+            50% {
+                transform: scale(1.04);
+                opacity: 1;
+            }
+
+            100% {
+                transform: scale(1);
+                opacity: 0.9;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="model-loading">
+        <div class="spinner"></div>
+        <div id="model-loading-text" class="loading-tip">正在初始化场景...</div>
+    </div>
+
+    <div id="score" class="ui">
+        分数: 0
+    </div>
+    <div id="level" class="ui">
+        关卡: 1 / 目标: 50
+    </div>
+    <div id="debug" class="ui">
+        速度: 0.1 | 关卡: 1
+    </div>
+
+    <!-- 触摸控制区域 -->
+    <div id="touch-area"></div>
+    <div id="mobile-jump-controls" aria-label="移动端跳跃按钮">
+        <button id="jump-left" class="jump-btn" type="button" aria-label="左侧跳跃">跳跃</button>
+        <button id="jump-right" class="jump-btn" type="button" aria-label="右侧跳跃">跳跃</button>
+    </div>
+
+    <div id="game-over">
+        <h2>游戏结束</h2>
+        <p>最终分数: <span id="final-score">0</span></p>
+        <p>最高关卡: <span id="final-level">1</span></p>
+        <p class="keyboard-tip">按空格可重新开始</p>
+        <button class="btn-success" onclick="restartGame()">重新开始</button>
+    </div>
+
+    <div id="pause-menu"
+        style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0, 0, 0, 0.9); color: white; padding: 30px; border-radius: 10px; text-align: center; z-index: 1000;">
+        <h2>游戏暂停</h2>
+        <div style="margin: 20px 0;">
+            <button class="btn-primary" onclick="resumeGame()"
+                style="margin: 10px; padding: 10px 20px; font-size: 16px;">继续游戏</button>
+            <button class="btn-success" onclick="restartCurrentLevel()"
+                style="margin: 10px; padding: 10px 20px; font-size: 16px;">重开本关</button>
+        </div>
+    </div>
+
+    <div id="start-screen">
+        <h2>3D小球跑酷游戏</h2>
+        <div class="rules">
+            <h3>游戏规则：</h3>
+            <div id="rules-desktop">
+                <p>1. 使用 A/← 键向左移动</p>
+                <p>2. 使用 D/→ 键向右移动</p>
+                <p>3. 使用 W/↑ 键跳跃</p>
+                <p class="keyboard-tip">4. 按空格键暂停游戏</p>
+                <p>5. 收集星光积分</p>
+                <p class="keyboard-tip">蓝色积分可触发冲刺，红色积分有高分和死亡概率</p>
+                <p>6. 达到目标分数升级关卡</p>
+                <p>7. 撞到障碍物游戏结束</p>
+                <p class="keyboard-tip">8. 开始/复活/下一关/重开都可按空格确认</p>
+            </div>
+            <div id="rules-mobile" style="display: none;">
+                <p>1. 在屏幕下方左右滑动控制小球</p>
+                <p>2. 点击左下角或右下角“跳跃”按钮起跳</p>
+                <p>3. 点击屏幕上方任意位置暂停游戏</p>
+                <p>4. 收集星光积分</p>
+                <p>蓝色积分可触发冲刺，红色积分有高分和死亡概率</p>
+                <p>5. 达到目标分数升级关卡</p>
+                <p>6. 撞到障碍物游戏结束</p>
+            </div>
+        </div>
+        <p class="keyboard-tip">按空格可开始/继续游戏</p>
+        <button class="btn-primary" onclick="startGame()">开始游戏</button>
+    </div>
+
+    <div id="level-complete">
+        <h2>关卡 <span id="completed-level">1</span> 完成！</h2>
+        <p>获得分数: <span id="completed-score">0</span></p>
+        <p>目标分数: <span id="completed-target">50</span></p>
+        <p class="keyboard-tip">按空格可进入下一关</p>
+        <p id="level-bonus-tip" style="display:none; color:#9ff3ff; text-shadow:0 0 8px rgba(159,243,255,0.55);"></p>
+        <button class="btn-primary" onclick="nextLevel()">进入下一关</button>
+        <button class="btn-danger" onclick="restartGame()">重新开始</button>
+    </div>
+
+    <div id="revive-modal"
+        style="display:none; position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); background:rgba(0,0,0,0.9); color:white; padding:30px; border-radius:10px; text-align:center; z-index:1100; max-width:90%; width:400px;">
+        <h2>成功复活</h2>
+        <p>剩余复活次数：<span id="revive-remaining">0</span></p>
+        <p class="keyboard-tip">按空格可继续游戏</p>
+        <button class="btn-primary" onclick="continueAfterRevive()">继续游戏</button>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js?v=3"></script>
+    <script>
+        // 全局变量
+        let animationId = null;
+        let lastTime = 0;
+        let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        const deviceMemoryGB = navigator.deviceMemory || 0;
+        const hardwareThreads = navigator.hardwareConcurrency || 4;
+        const memoryKnown = deviceMemoryGB > 0;
+        const mobileLowTier = isMobile && ((memoryKnown && deviceMemoryGB > 0 && deviceMemoryGB <= 4) || (!memoryKnown && hardwareThreads <= 6));
+        const mobileVisualEffectStep = mobileLowTier ? 3 : 2;
+        let mobileVisualFrameCounter = 0;
+        const emergenceStartZ = -72;
+        const emergenceEndZ = -30;
+        let mobilePixelRatioCap = 1.0;
+        let mobileAnisotropyCap = 1;
+        let mobileToneMappingExposure = 0.9;
+        let enableMobileAntialias = false;
+        let textureAnisotropyLevel = 1;
+        let lastResizeWidth = window.innerWidth;
+        let lastResizeHeight = window.innerHeight;
+        let currentRenderPixelRatio = 1;
+        let viewportSyncRafId = 0;
+        let pendingPixelRatioRefresh = false;
+
+        if (isMobile) {
+            document.body.classList.add('mobile-device');
+        }
+
+        function updateMobileRenderTuning() {
+            if (!isMobile) {
+                mobilePixelRatioCap = 2;
+                mobileAnisotropyCap = 8;
+                enableMobileAntialias = true;
+                mobileToneMappingExposure = 1.0;
+                return;
+            }
+
+            const dpr = window.devicePixelRatio || 1;
+            const shortEdge = Math.min(window.innerWidth, window.innerHeight);
+            const highEnd =
+                (memoryKnown && deviceMemoryGB >= 6 && hardwareThreads >= 8) ||
+                (!memoryKnown && hardwareThreads >= 10 && dpr >= 3);
+            const mediumEnd =
+                (memoryKnown && deviceMemoryGB >= 4 && hardwareThreads >= 6) ||
+                (!memoryKnown && hardwareThreads >= 8);
+
+            if (highEnd) {
+                mobilePixelRatioCap = shortEdge >= 390 && dpr >= 2.2 ? 1.85 : 1.65;
+                mobileAnisotropyCap = 6;
+                enableMobileAntialias = true;
+                mobileToneMappingExposure = 0.9;
+            } else if (mediumEnd) {
+                mobilePixelRatioCap = dpr >= 2 ? 1.5 : 1.35;
+                mobileAnisotropyCap = 4;
+                enableMobileAntialias = true;
+                mobileToneMappingExposure = 0.88;
+            } else {
+                mobilePixelRatioCap = 1.25;
+                mobileAnisotropyCap = 2;
+                enableMobileAntialias = false;
+                mobileToneMappingExposure = 0.86;
+            }
+        }
+
+        function getRenderPixelRatioCap() {
+            return isMobile ? mobilePixelRatioCap : 2;
+        }
+
+        function getViewportDimensions() {
+            const vv = window.visualViewport;
+            if (vv) {
+                return {
+                    width: Math.max(1, Math.round(vv.width)),
+                    height: Math.max(1, Math.round(vv.height))
+                };
+            }
+
+            return {
+                width: Math.max(1, window.innerWidth),
+                height: Math.max(1, window.innerHeight)
+            };
+        }
+
+        function applyRendererViewport({ refreshPixelRatio = false } = {}) {
+            if (!camera || !renderer) return;
+
+            const viewport = getViewportDimensions();
+            camera.aspect = viewport.width / viewport.height;
+            camera.updateProjectionMatrix();
+
+            if (refreshPixelRatio || !currentRenderPixelRatio) {
+                updateMobileRenderTuning();
+                currentRenderPixelRatio = Math.min(window.devicePixelRatio || 1, getRenderPixelRatioCap());
+                renderer.setPixelRatio(currentRenderPixelRatio);
+            }
+
+            renderer.setSize(viewport.width, viewport.height, false);
+            renderer.domElement.style.width = `${viewport.width}px`;
+            renderer.domElement.style.height = `${viewport.height}px`;
+
+            lastResizeWidth = viewport.width;
+            lastResizeHeight = viewport.height;
+        }
+
+        function scheduleViewportSync({ refreshPixelRatio = false } = {}) {
+            pendingPixelRatioRefresh = pendingPixelRatioRefresh || refreshPixelRatio;
+            if (viewportSyncRafId) return;
+
+            viewportSyncRafId = requestAnimationFrame(() => {
+                applyRendererViewport({ refreshPixelRatio: pendingPixelRatioRefresh });
+                pendingPixelRatioRefresh = false;
+                viewportSyncRafId = 0;
+            });
+        }
+
+        function getEmergenceProgress(z) {
+            return Math.max(0, Math.min(1, (z - emergenceStartZ) / (emergenceEndZ - emergenceStartZ)));
+        }
+
+        function smoothstep01(t) {
+            return t * t * (3 - 2 * t);
+        }
+
+        function applyTextureClarity(texture, { isDynamic = false } = {}) {
+            if (!texture) return;
+
+            texture.magFilter = THREE.LinearFilter;
+            texture.minFilter = isDynamic ? THREE.LinearFilter : THREE.LinearMipmapLinearFilter;
+
+            if (!isDynamic) {
+                texture.generateMipmaps = true;
+            }
+
+            texture.anisotropy = textureAnisotropyLevel;
+            texture.needsUpdate = true;
+        }
+
+        updateMobileRenderTuning();
+
+        // 游戏配置
+        const config = {
+            speed: 0.1,
+            moveSpeed: 0.05,
+            jumpVelocity: 0.23,
+            jumpGravity: 0.013,
+            groundY: 0.5,
+            roadWidth: 12,
+            roadLength: 200,
+            segments: isMobile ? 6 : 10,
+            maxDistance: 1000, // 基础最大距离
+            fixedTimeStep: 1 / 60 // 固定时间步长，60fps
+        };
+
+        // 关卡配置
+        const levels = [
+            { score: 100, speed: 0.25 },    // 第一关：100分
+            { score: 250, speed: 0.3 },     // 第二关：250分
+            { score: 450, speed: 0.35 },    // 第三关：450分
+            { score: 700, speed: 0.4 },     // 第四关：700分
+            { score: 1000, speed: 0.45 },   // 第五关：1000分
+            { score: 1350, speed: 0.5 },    // 第六关：1350分
+            { score: 1750, speed: 0.55 },   // 第七关：1750分
+            { score: 2200, speed: 0.6 },    // 第八关：2200分
+            { score: 2700, speed: 0.65 },   // 第九关：2700分
+            { score: -1, speed: 0.7 }       // 第十关：无限模式，-1表示无目标分数
+        ];
+
+        // 游戏状态
+        let game = {
+            level: 1,
+            score: 0,
+            gameOver: false,
+            gameStarted: false,
+            distance: 0,
+            paused: false
+        };
+
+        // Three.js 变量
+        let scene, camera, renderer, ball;
+        let roadSegments = [];
+        let obstacles = [];
+        let collectibles = [];
+        let collectibleBursts = [];
+        let lastBallX = 0;
+        let lastCollisionBallPos = null;
+        let ballTrailNodes = [];
+        let ballTrailSystem = null;
+        let ballTrailSprites = [];
+        const ballTrailMaxNodes = isMobile ? 20 : 56;
+        let ballTrailDirection = null;
+        let keys = {};
+        let verticalVelocity = 0;
+        let isGrounded = true;
+        let roadMaterial = null;
+        let vortexTexturePool = [];
+        const mobileFaceRefreshIntervalMs = mobileLowTier ? 180 : 150;
+        let modelLoadingShownAt = 0;
+        const minLoadingVisibleMs = isMobile ? 520 : 260;
+        const loadingAppearDelayMs = isMobile ? 260 : 180;
+        let modelLoadingTimer = null;
+        let modelLoadingVisible = false;
+        let reviveChances = 0;
+        let reviveRespawnState = null;
+        let currentLevelCollectibleSpawned = 0;
+        let currentLevelCollectibleCollected = 0;
+    let currentLevelCollectibleMissed = 0;
+        let reviveInvincibleUntilMs = 0;
+        const perfectLevelsAchieved = new Set();
+        const blueCollectibleNormalRatio = 20;
+        const blueCollectibleSpawnProbability = 1 / (blueCollectibleNormalRatio + 1);
+        // 红色积分：出现概率与蓝色一致，包含死亡概率选项
+        const redCollectibleSpawnProbability = blueCollectibleSpawnProbability;
+        const redDeathProbabilityOptions = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]; // 对应 5%,10%,20%,30%,40%,50%
+        const sprintDistanceSeconds = 12;
+        const sprintBoostMultiplier = 2;
+        const sprintMoveSpeedMultiplier = 1.5;
+        const sprintSlowdownTailRatio = 0.2;
+        let sprintDistanceRemaining = 0;
+        let sprintDistanceBudget = 0;
+        let sprintSpeedMultiplier = 1;
+
+        function hasPerfectGrandSlamFirstNine() {
+            for (let level = 1; level <= 9; level++) {
+                if (!perfectLevelsAchieved.has(level)) return false;
+            }
+            return true;
+        }
+
+        function getCurrentLevelBaseSpeed() {
+            const levelIndex = Math.max(0, Math.min(levels.length - 1, game.level - 1));
+            const levelSpeed = levels[levelIndex] && Number.isFinite(levels[levelIndex].speed)
+                ? levels[levelIndex].speed
+                : config.speed;
+            return Math.max(0, levelSpeed);
+        }
+
+        function getSprintDistanceBudget(baseSpeed = getCurrentLevelBaseSpeed()) {
+            const safeSpeed = Math.max(0, baseSpeed);
+            return safeSpeed * (sprintDistanceSeconds / config.fixedTimeStep);
+        }
+
+        function activateOrRefreshSprint() {
+            sprintDistanceBudget = getSprintDistanceBudget();
+            sprintDistanceRemaining = sprintDistanceBudget;
+            sprintSpeedMultiplier = sprintBoostMultiplier;
+        }
+
+        function clearSprintState() {
+            sprintDistanceRemaining = 0;
+            sprintDistanceBudget = 0;
+            sprintSpeedMultiplier = 1;
+        }
+
+        function clearCollectibleProbabilityLabels() {
+            document.querySelectorAll('.prob-label').forEach((labelEl) => {
+                if (labelEl && labelEl.parentNode) {
+                    labelEl.parentNode.removeChild(labelEl);
+                }
+            });
+        }
+
+        function carryOverLevelScore() {
+            if (game.level >= levels.length) {
+                return;
+            }
+
+            const levelTarget = levels[game.level - 1].score;
+            game.score = Math.max(0, game.score - levelTarget);
+            game.level++;
+        }
+
+        function getSprintMultiplier() {
+            if (sprintDistanceRemaining <= 0 || sprintDistanceBudget <= 0) {
+                return 1;
+            }
+
+            const remainRatio = Math.max(0, Math.min(1, sprintDistanceRemaining / sprintDistanceBudget));
+            if (remainRatio > sprintSlowdownTailRatio) {
+                return sprintBoostMultiplier;
+            }
+
+            const tailProgress = Math.max(0, Math.min(1, remainRatio / sprintSlowdownTailRatio));
+            return 1 + (sprintBoostMultiplier - 1) * smoothstep01(tailProgress);
+        }
+
+        function disposeSceneResources(targetScene) {
+            if (!targetScene) return;
+
+            targetScene.traverse((object) => {
+                if (object.geometry) {
+                    object.geometry.dispose();
+                }
+
+                if (object.material) {
+                    const materials = Array.isArray(object.material) ? object.material : [object.material];
+                    materials.forEach((material) => {
+                        if (!material) return;
+
+                        [
+                            'map',
+                            'lightMap',
+                            'aoMap',
+                            'emissiveMap',
+                            'bumpMap',
+                            'normalMap',
+                            'displacementMap',
+                            'roughnessMap',
+                            'metalnessMap',
+                            'alphaMap',
+                            'envMap'
+                        ].forEach((key) => {
+                            if (material[key] && typeof material[key].dispose === 'function') {
+                                material[key].dispose();
+                            }
+                        });
+
+                        material.dispose();
+                    });
+                }
+            });
+        }
+
+        function showModelLoading(text = '正在初始化场景...') {
+            const loadingEl = document.getElementById('model-loading');
+            const textEl = document.getElementById('model-loading-text');
+            if (textEl) textEl.textContent = text;
+            if (!loadingEl) return;
+
+            if (modelLoadingTimer) {
+                clearTimeout(modelLoadingTimer);
+                modelLoadingTimer = null;
+            }
+
+            modelLoadingVisible = false;
+            loadingEl.classList.remove('is-loading');
+            loadingEl.style.display = 'none';
+
+            modelLoadingTimer = setTimeout(() => {
+                modelLoadingShownAt = performance.now();
+                loadingEl.style.display = 'flex';
+                loadingEl.classList.add('is-loading');
+                modelLoadingVisible = true;
+                modelLoadingTimer = null;
+            }, loadingAppearDelayMs);
+        }
+
+        function hideModelLoading() {
+            const loadingEl = document.getElementById('model-loading');
+            if (!loadingEl) return;
+
+            if (modelLoadingTimer) {
+                clearTimeout(modelLoadingTimer);
+                modelLoadingTimer = null;
+            }
+
+            if (!modelLoadingVisible) {
+                loadingEl.classList.remove('is-loading');
+                loadingEl.style.display = 'none';
+                return;
+            }
+
+            const elapsed = performance.now() - modelLoadingShownAt;
+            const remain = Math.max(0, minLoadingVisibleMs - elapsed);
+
+            if (remain > 0) {
+                setTimeout(() => {
+                    loadingEl.classList.remove('is-loading');
+                    loadingEl.style.display = 'none';
+                    modelLoadingVisible = false;
+                }, remain);
+                return;
+            }
+
+            loadingEl.classList.remove('is-loading');
+            loadingEl.style.display = 'none';
+            modelLoadingVisible = false;
+        }
+
+        function initGameWithLoading({ text = '正在初始化场景...', autoStart = false } = {}) {
+            showModelLoading(text);
+
+            requestAnimationFrame(() => {
+                setTimeout(() => {
+                    try {
+                        initGame();
+                        if (autoStart) {
+                            game.gameStarted = true;
+                            const startScreen = document.getElementById('start-screen');
+                            if (startScreen) {
+                                startScreen.style.display = 'none';
+                            }
+                            updateMobileControlsVisibility();
+                        }
+                    } finally {
+                        hideModelLoading();
+                    }
+                }, 0);
+            });
+        }
+
+        // 初始化游戏
+        function initGame() {
+            // 停止旧的动画循环
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+
+            lastTime = 0;
+
+            // 加载保存的游戏状态
+            loadGameState();
+            console.log('Loaded game state:', game);
+
+            // 设置当前关卡的速度
+            config.speed = levels[game.level - 1].speed;
+
+            // 根据游戏速度动态调整移动速度
+            // 移动速度与游戏速度成正比，确保移动速度能够跟上滚动速度
+            config.moveSpeed = Math.min(0.2, config.speed * 0.7);
+
+            // 随关卡增加增大最大滚动长度
+            // 关卡1: 1800 (约2分钟), 关卡5: 4000 (约3.5分钟)
+            // 非线性增长，后面的关卡增加更多时间
+            config.maxDistance = 1800 + (game.level - 1) * 200 + Math.pow(game.level - 1, 2) * 100;
+
+            // 重置游戏状态（如果是首次加载或重新开始）
+            if (!game.gameStarted) {
+                // 不重置分数，保留加载的分数
+                // if (game.level === 1) {
+                //     game.score = 0;
+                // }
+                game.gameOver = false;
+                game.distance = 0;
+                game.paused = false;
+            } else {
+                // 如果是加载保存的游戏状态，重置距离
+                game.distance = 0;
+                // 重置游戏开始状态，避免立即进入关卡完成
+                game.gameStarted = false;
+            }
+
+            // 清空数组
+            roadSegments = [];
+            obstacles = [];
+            collectibles = [];
+            collectibleBursts = [];
+            ballTrailNodes = [];
+            ballTrailSystem = null;
+            ballTrailSprites = [];
+            ballTrailDirection = null;
+            vortexTexturePool = [];
+            keys = {};
+            reviveRespawnState = null;
+            clearCollectibleProbabilityLabels();
+            currentLevelCollectibleSpawned = 0;
+            currentLevelCollectibleCollected = 0;
+            currentLevelCollectibleMissed = 0;
+            reviveInvincibleUntilMs = 0;
+            clearSprintState();
+
+            const levelBonusTip = document.getElementById('level-bonus-tip');
+            if (levelBonusTip) {
+                levelBonusTip.style.display = 'none';
+                levelBonusTip.textContent = '';
+            }
+
+            const reviveModal = document.getElementById('revive-modal');
+            if (reviveModal) {
+                reviveModal.style.display = 'none';
+            }
+
+            // 清除旧场景
+            if (renderer) {
+                const canvas = renderer.domElement;
+                if (scene) {
+                    disposeSceneResources(scene);
+                }
+                if (canvas && canvas.parentNode) {
+                    canvas.parentNode.removeChild(canvas);
+                }
+                renderer.dispose();
+            }
+
+            scene = null;
+            camera = null;
+            renderer = null;
+
+            // 创建场景
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a2e);
+
+            // 添加背景星星效果
+            addBackgroundStars();
+
+            // 创建相机
+            const viewport = getViewportDimensions();
+            const aspect = viewport.width / viewport.height;
+            const fov = isMobile ? 85 : 75; // 手机端使用更大的视场角
+            camera = new THREE.PerspectiveCamera(fov, aspect, 0.1, 1000);
+            camera.position.set(0, isMobile ? 6.4 : 5, isMobile ? 11.8 : 10);
+
+            // 创建渲染器
+            renderer = new THREE.WebGLRenderer({
+                antialias: !isMobile || enableMobileAntialias,
+                powerPreference: 'high-performance'
+            });
+            currentRenderPixelRatio = 0;
+            applyRendererViewport({ refreshPixelRatio: true });
+            renderer.toneMapping = isMobile ? THREE.ACESFilmicToneMapping : THREE.LinearToneMapping;
+            renderer.toneMappingExposure = isMobile ? mobileToneMappingExposure : 1.0;
+            renderer.outputEncoding = THREE.sRGBEncoding;
+            textureAnisotropyLevel = renderer && renderer.capabilities
+                ? Math.max(1, Math.min(isMobile ? mobileAnisotropyCap : 8, renderer.capabilities.getMaxAnisotropy()))
+                : 1;
+            document.body.appendChild(renderer.domElement);
+            renderer.domElement.style.filter = isMobile ? 'none' : 'saturate(1.04) contrast(1.02)';
+
+            // 添加灯光
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
+            directionalLight.position.set(0, 10, -5);
+            scene.add(directionalLight);
+
+            // 创建小球
+            createBall();
+
+            // 创建道路
+            createRoad();
+
+            // 预热漩涡纹理池，避免运行中频繁生成卡顿
+            if (vortexTexturePool.length === 0) {
+                const poolSize = isMobile ? 2 : 4;
+                for (let i = 0; i < poolSize; i++) {
+                    vortexTexturePool.push(createVortexTexture());
+                }
+            }
+
+            // 更新UI
+            updateUI();
+
+            // 显示开始屏幕
+            document.getElementById('start-screen').style.display = 'block';
+            document.getElementById('game-over').style.display = 'none';
+            document.getElementById('level-complete').style.display = 'none';
+            updateMobileControlsVisibility();
+
+            // 开始动画
+            animate(performance.now());
+        }
+
+        // 添加背景星星效果
+        function addBackgroundStars() {
+            const starsGeometry = new THREE.BufferGeometry();
+            const starsCount = isMobile ? 50 : 1000;
+
+            const positions = new Float32Array(starsCount * 3);
+            const colors = new Float32Array(starsCount * 3);
+
+            for (let i = 0; i < starsCount; i++) {
+                // 位置：避开道路通道，避免在路中间出现“方块”干扰
+                let x, y, z;
+                let attempts = 0;
+                do {
+                    x = (Math.random() - 0.5) * 220;
+                    y = (Math.random() - 0.5) * 120;
+                    z = (Math.random() - 0.5) * 260;
+                    attempts++;
+                } while (
+                    attempts < 12 &&
+                    Math.abs(x) < config.roadWidth * 0.8 &&
+                    y > -2 && y < 8 &&
+                    z > -80 && z < 30
+                );
+                positions[i * 3] = x;
+                positions[i * 3 + 1] = y;
+                positions[i * 3 + 2] = z;
+
+                // 颜色
+                const color = new THREE.Color();
+                color.setHSL(Math.random(), 0.8, 0.6);
+                colors[i * 3] = color.r;
+                colors[i * 3 + 1] = color.g;
+                colors[i * 3 + 2] = color.b;
+            }
+
+            starsGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            starsGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            // 圆形星点纹理，避免点精灵显示成小方块
+            const starCanvas = document.createElement('canvas');
+            starCanvas.width = 32;
+            starCanvas.height = 32;
+            const sctx = starCanvas.getContext('2d');
+            const starGrad = sctx.createRadialGradient(16, 16, 0, 16, 16, 14);
+            starGrad.addColorStop(0, 'rgba(255,255,255,1)');
+            starGrad.addColorStop(0.35, 'rgba(220,235,255,0.9)');
+            starGrad.addColorStop(1, 'rgba(220,235,255,0)');
+            sctx.fillStyle = starGrad;
+            sctx.fillRect(0, 0, 32, 32);
+            const starTexture = new THREE.CanvasTexture(starCanvas);
+            applyTextureClarity(starTexture);
+
+            const starsMaterial = new THREE.PointsMaterial({
+                size: isMobile ? 0.42 : 0.55,
+                map: starTexture,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.72,
+                depthWrite: false
+            });
+
+            const stars = new THREE.Points(starsGeometry, starsMaterial);
+            scene.add(stars);
+        }
+
+        // 创建小球
+        function createBall() {
+            const createBallSurfaceTexture = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 512;
+                canvas.height = 256;
+                const ctx = canvas.getContext('2d');
+
+                const base = ctx.createLinearGradient(0, 0, canvas.width, 0);
+                base.addColorStop(0, '#3aa2d7');
+                base.addColorStop(0.5, '#7fd9ff');
+                base.addColorStop(1, '#2d88bf');
+                ctx.fillStyle = base;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                // 可见滚动细节：经向条纹 + 亮暗带
+                for (let i = 0; i < 16; i++) {
+                    const x = (i / 16) * canvas.width;
+                    ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.15)' : 'rgba(25,70,120,0.18)';
+                    ctx.fillRect(x, 0, canvas.width / 32, canvas.height);
+                }
+
+                for (let i = 0; i < 6; i++) {
+                    const y = (i / 6) * canvas.height;
+                    ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)';
+                    ctx.fillRect(0, y, canvas.width, canvas.height / 14);
+                }
+
+                const tex = new THREE.CanvasTexture(canvas);
+                tex.wrapS = THREE.RepeatWrapping;
+                tex.wrapT = THREE.RepeatWrapping;
+                tex.repeat.set(1, 1);
+                applyTextureClarity(tex);
+                return tex;
+            };
+
+            const createSprintFlowTexture = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 96;
+                canvas.height = 512;
+                const ctx = canvas.getContext('2d');
+
+                for (let y = 0; y < canvas.height; y++) {
+                    const v = 1 - y / canvas.height;
+                    const alpha = Math.pow(v, 1.35);
+                    const grad = ctx.createLinearGradient(0, 0, canvas.width, 0);
+                    grad.addColorStop(0, 'rgba(110, 220, 255, 0)');
+                    grad.addColorStop(0.32, `rgba(120, 225, 255, ${alpha * 0.33})`);
+                    grad.addColorStop(0.5, `rgba(230, 250, 255, ${alpha * 0.54})`);
+                    grad.addColorStop(0.68, `rgba(120, 225, 255, ${alpha * 0.33})`);
+                    grad.addColorStop(1, 'rgba(110, 220, 255, 0)');
+                    ctx.fillStyle = grad;
+                    ctx.fillRect(0, y, canvas.width, 1);
+                }
+
+                const tex = new THREE.CanvasTexture(canvas);
+                tex.wrapS = THREE.ClampToEdgeWrapping;
+                tex.wrapT = THREE.RepeatWrapping;
+                tex.repeat.set(1, 1.8);
+                applyTextureClarity(tex, { isDynamic: true });
+                return tex;
+            };
+
+            const ballGroup = new THREE.Group();
+            const surfaceMap = createBallSurfaceTexture();
+
+            const core = new THREE.Mesh(
+                new THREE.SphereGeometry(0.5, 32, 32),
+                new THREE.MeshStandardMaterial({
+                    map: surfaceMap,
+                    color: 0x6fd3ff,
+                    roughness: 0.24,
+                    metalness: 0.52,
+                    emissive: 0x1a3f5a,
+                    emissiveIntensity: 0.3
+                })
+            );
+
+            const glowShell = new THREE.Mesh(
+                new THREE.SphereGeometry(0.56, 24, 24),
+                new THREE.MeshStandardMaterial({
+                    color: 0xb5ecff,
+                    transparent: true,
+                    opacity: 0.22,
+                    roughness: 0.1,
+                    metalness: 0.1,
+                    emissive: 0x4fd2ff,
+                    emissiveIntensity: 0.45
+                })
+            );
+
+            const ring = new THREE.Mesh(
+                new THREE.TorusGeometry(0.44, 0.04, 12, 48),
+                new THREE.MeshStandardMaterial({
+                    color: 0xffffff,
+                    emissive: 0x7fe7ff,
+                    emissiveIntensity: 0.8,
+                    roughness: 0.2,
+                    metalness: 0.3
+                })
+            );
+            ring.rotation.x = Math.PI / 2;
+
+            const auraGroup = new THREE.Group();
+            const auraShellMain = new THREE.Mesh(
+                new THREE.SphereGeometry(0.74, 30, 24),
+                new THREE.MeshBasicMaterial({
+                    color: 0x9defff,
+                    transparent: true,
+                    opacity: 0,
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false,
+                    depthTest: true
+                })
+            );
+            auraShellMain.position.set(0, 0, 0.12);
+            auraShellMain.scale.set(0.98, 0.98, 0.72);
+
+            const auraShellEdge = new THREE.Mesh(
+                new THREE.SphereGeometry(0.79, 30, 24),
+                new THREE.MeshBasicMaterial({
+                    color: 0x7fe7ff,
+                    transparent: true,
+                    opacity: 0,
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false,
+                    depthTest: true
+                })
+            );
+            auraShellEdge.position.set(0, 0, 0.18);
+            auraShellEdge.scale.set(1.02, 1.01, 0.68);
+
+            const flowTexture = createSprintFlowTexture();
+            const flowStripCount = isMobile ? 4 : 6;
+            const flowStrips = [];
+
+            for (let i = 0; i < flowStripCount; i++) {
+                const lane = i - (flowStripCount - 1) * 0.5;
+                const laneFactor = lane / Math.max(1, flowStripCount - 1);
+                const length = 2.35 - Math.abs(laneFactor) * 0.44;
+                const width = 0.12 + (0.02 * (1 - Math.abs(laneFactor)));
+                const stripTexture = flowTexture.clone();
+                stripTexture.wrapS = THREE.ClampToEdgeWrapping;
+                stripTexture.wrapT = THREE.RepeatWrapping;
+                stripTexture.repeat.set(1, 1.8);
+                stripTexture.needsUpdate = true;
+
+                const strip = new THREE.Mesh(
+                    new THREE.PlaneGeometry(width, length),
+                    new THREE.MeshBasicMaterial({
+                        map: stripTexture,
+                        color: 0x9beeff,
+                        transparent: true,
+                        opacity: 0,
+                        blending: THREE.AdditiveBlending,
+                        depthWrite: false,
+                        depthTest: true,
+                        side: THREE.DoubleSide
+                    })
+                );
+
+                strip.rotation.x = -Math.PI / 2;
+                strip.rotation.z = laneFactor * 0.28;
+                strip.position.set(lane * 0.15, 0.01 - Math.abs(laneFactor) * 0.015, -1.05 - Math.abs(laneFactor) * 0.12);
+                strip.userData.phase = i * 0.72;
+                flowStrips.push(strip);
+                auraGroup.add(strip);
+            }
+
+            auraGroup.add(auraShellMain);
+            auraGroup.add(auraShellEdge);
+            auraGroup.visible = false;
+
+            ballGroup.add(core);
+            ballGroup.add(glowShell);
+            ballGroup.add(ring);
+            ballGroup.userData.ring = ring;
+            ballGroup.userData.radius = 0.5;
+            ballGroup.userData.core = core;
+            ballGroup.userData.sprintAuraGroup = auraGroup;
+            ballGroup.userData.sprintAuraShellMain = auraShellMain;
+            ballGroup.userData.sprintAuraShellEdge = auraShellEdge;
+            ballGroup.userData.sprintAuraFlowStrips = flowStrips;
+
+            ball = ballGroup;
+            ball.position.set(0, config.groundY, 0);
+            verticalVelocity = 0;
+            isGrounded = true;
+            lastBallX = ball.position.x;
+            lastCollisionBallPos = null;
+            scene.add(ball);
+            scene.add(auraGroup);
+
+            createBallTrailSystem();
+        }
+
+        function createBallTrailSystem() {
+            // 地面光路贴图：中心亮、两侧羽化、尾部渐隐（淡色）
+            const texCanvas = document.createElement('canvas');
+            texCanvas.width = 128;
+            texCanvas.height = 512;
+            const tctx = texCanvas.getContext('2d');
+            tctx.clearRect(0, 0, 128, 512);
+
+            for (let y = 0; y < 512; y++) {
+                const v = 1 - y / 512;
+                const alpha = Math.pow(v, 1.5);
+                const grad = tctx.createLinearGradient(0, 0, 128, 0);
+                grad.addColorStop(0, `rgba(70, 180, 255, 0)`);
+                grad.addColorStop(0.32, `rgba(90, 195, 255, ${alpha * 0.28})`);
+                grad.addColorStop(0.5, `rgba(220, 245, 255, ${alpha * 0.44})`);
+                grad.addColorStop(0.68, `rgba(90, 195, 255, ${alpha * 0.28})`);
+                grad.addColorStop(1, `rgba(70, 180, 255, 0)`);
+                tctx.fillStyle = grad;
+                tctx.fillRect(0, y, 128, 1);
+            }
+
+            const spriteTex = new THREE.CanvasTexture(texCanvas);
+            ballTrailSystem = new THREE.Group();
+            ballTrailSprites = [];
+            ballTrailNodes = [];
+
+            const segments = ballTrailMaxNodes - 1;
+            const geo = new THREE.PlaneGeometry(1, 1, 1, segments);
+            const mat = new THREE.MeshBasicMaterial({
+                map: spriteTex,
+                color: 0x6ecfff,
+                transparent: true,
+                opacity: 0.38,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                depthTest: true,
+                side: THREE.DoubleSide
+            });
+            const mesh = new THREE.Mesh(geo, mat);
+            // 不旋转网格，直接将顶点写在世界XZ平面（y固定贴地）
+            mesh.position.set(0, 0, 0);
+            mesh.frustumCulled = false;
+            ballTrailSystem.add(mesh);
+            ballTrailSprites.push(mesh);
+
+
+            for (let j = 0; j <= segments; j++) {
+                ballTrailNodes.push(new THREE.Vector3(0, 0.015, -1000));
+            }
+            scene.add(ballTrailSystem);
+            ballTrailDirection = new THREE.Vector3(0, 0, 1);
+        }
+
+        function updateBallRollAndTrail(dt, timeSec) {
+            if (!ball || !ballTrailSystem) return;
+
+            const ballRadius = ball.userData.radius || 0.5;
+            const dx = ball.position.x - lastBallX;
+            const dz = -config.speed; // 道路向前滚动等价为小球向 -Z 方向前进
+            const distance = Math.sqrt(dx * dx + dz * dz);
+
+            if (distance > 1e-5) {
+                // 物理滚动轴：up x displacement，确保与运动方向一致
+                const axis = new THREE.Vector3(dz, 0, -dx).normalize();
+                const angle = distance / ballRadius;
+                const q = new THREE.Quaternion().setFromAxisAngle(axis, angle);
+                ball.quaternion.premultiply(q);
+            }
+            lastBallX = ball.position.x;
+
+            // 地面光路：沿运动轨迹实时生成，停止后逐步淡去
+            const direction = new THREE.Vector3(-dx, 0, -dz);
+            if (direction.lengthSq() < 1e-5) {
+                direction.set(0, 0, 1);
+            } else {
+                direction.normalize();
+            }
+
+            if (!ballTrailDirection) {
+                ballTrailDirection = direction.clone();
+            } else {
+                ballTrailDirection.lerp(direction, 0.2).normalize();
+            }
+
+            const isMoving = Math.abs(dx) + Math.abs(dz) > 0.00008;
+            const head = new THREE.Vector3(
+                ball.position.x + ballTrailDirection.x * 0.28,
+                0.015,
+                ball.position.z + ballTrailDirection.z * 0.28
+            );
+
+            for (let j = 0; j < ballTrailNodes.length; j++) {
+                ballTrailNodes[j].z += config.speed;
+            }
+
+            if (isMoving) {
+                for (let j = ballTrailNodes.length - 1; j > 0; j--) {
+                    ballTrailNodes[j].copy(ballTrailNodes[j - 1]);
+                }
+                ballTrailNodes[0].copy(head);
+            } else {
+                // 停止移动时，光路自然淡去：前端也后移，不再注入新节点
+                for (let j = 0; j < ballTrailNodes.length - 1; j++) {
+                    ballTrailNodes[j].copy(ballTrailNodes[j + 1]);
+                }
+                ballTrailNodes[ballTrailNodes.length - 1].set(
+                    ballTrailNodes[ballTrailNodes.length - 1].x,
+                    0.015,
+                    ballTrailNodes[ballTrailNodes.length - 1].z + config.speed
+                );
+            }
+
+            const mesh = ballTrailSprites[0];
+            const posAttr = mesh.geometry.attributes.position;
+            const up = new THREE.Vector3(0, 1, 0);
+
+            for (let j = 0; j < ballTrailNodes.length; j++) {
+                const p = ballTrailNodes[j];
+                const t = j / (ballTrailNodes.length - 1); // 头->尾
+
+                let tangent = ballTrailDirection.clone();
+                if (j > 0 && j < ballTrailNodes.length - 1) {
+                    tangent.subVectors(ballTrailNodes[j - 1], ballTrailNodes[j + 1]).normalize();
+                }
+                let right = new THREE.Vector3().crossVectors(up, tangent).normalize();
+                if (right.lengthSq() < 0.0001) right.set(1, 0, 0);
+
+                // 渐细 + 收拢
+                // 头部先尖后展，避免起点出现“凸出来一块”
+                let width;
+                if (t < 0.06) {
+                    width = 0.03 + (t / 0.06) * 0.72;
+                } else {
+                    width = 0.76 * Math.pow(1 - (t - 0.06) / 0.94, 1.03) + 0.04;
+                }
+                // 取消尾部向当前球心横向回拉，避免出现“回勾”
+                const center = new THREE.Vector3(
+                    p.x,
+                    0.015,
+                    p.z
+                );
+                const pL = center.clone().addScaledVector(right, width * 0.5);
+                const pR = center.clone().addScaledVector(right, -width * 0.5);
+
+                const vIdxL = j * 2;
+                const vIdxR = j * 2 + 1;
+                posAttr.setXYZ(vIdxL, pL.x, pL.y, pL.z);
+                posAttr.setXYZ(vIdxR, pR.x, pR.y, pR.z);
+            }
+            posAttr.needsUpdate = true;
+
+            // 淡色 + 轻微呼吸，不抢主体
+            const baseOpacity = isMoving ? 0.38 : 0.2;
+            mesh.material.opacity = baseOpacity + 0.045 * Math.sin(timeSec * 6.0);
+
+            const auraGroup = ball.userData.sprintAuraGroup;
+            const auraShellMain = ball.userData.sprintAuraShellMain;
+            const auraShellEdge = ball.userData.sprintAuraShellEdge;
+            const auraFlowStrips = ball.userData.sprintAuraFlowStrips || [];
+            if (!auraGroup || !auraShellMain || !auraShellEdge || auraFlowStrips.length === 0) return;
+
+            const remainRatio = sprintDistanceBudget > 0
+                ? Math.max(0, Math.min(1, sprintDistanceRemaining / sprintDistanceBudget))
+                : 0;
+            const visualStrength = remainRatio > sprintSlowdownTailRatio
+                ? 1
+                : smoothstep01(Math.max(0, Math.min(1, remainRatio / sprintSlowdownTailRatio)));
+
+            if (sprintDistanceRemaining <= 0 || visualStrength <= 0.001) {
+                auraGroup.visible = false;
+                auraShellMain.material.opacity = 0;
+                auraShellEdge.material.opacity = 0;
+                auraFlowStrips.forEach((strip) => {
+                    strip.material.opacity = 0;
+                });
+                return;
+            }
+
+            auraGroup.visible = true;
+            const forward = ballTrailDirection && ballTrailDirection.lengthSq() > 1e-6
+                ? ballTrailDirection.clone().normalize()
+                : new THREE.Vector3(0, 0, 1);
+            auraGroup.position.copy(ball.position);
+            auraGroup.position.y += 0.02;
+            auraGroup.rotation.set(0, Math.atan2(forward.x, forward.z), 0);
+
+            const flicker = 0.92 + 0.08 * Math.sin(timeSec * 18);
+            auraShellMain.material.opacity = (0.14 + 0.05 * Math.sin(timeSec * 7.5)) * visualStrength * flicker;
+            auraShellEdge.material.opacity = (0.2 + 0.06 * Math.sin(timeSec * 10.5 + 0.8)) * visualStrength;
+
+            auraShellMain.scale.set(
+                0.96 + 0.08 * visualStrength,
+                0.96 + 0.05 * visualStrength,
+                0.7 + 0.24 * visualStrength
+            );
+            auraShellEdge.scale.set(
+                1 + 0.1 * visualStrength,
+                1 + 0.08 * visualStrength,
+                0.66 + 0.3 * visualStrength
+            );
+
+            const stripOpacityBase = (0.2 + 0.05 * Math.sin(timeSec * 9)) * visualStrength;
+            const stripLengthScale = 0.78 + 0.55 * visualStrength;
+            auraFlowStrips.forEach((strip, idx) => {
+                const pulse = 0.85 + 0.15 * Math.sin(timeSec * 12 + (strip.userData.phase || idx));
+                strip.material.opacity = stripOpacityBase * pulse;
+                strip.scale.set(1 + 0.14 * visualStrength, stripLengthScale, 1);
+                if (strip.material.map) {
+                    strip.material.map.offset.y = (strip.material.map.offset.y + dt * (1.25 + 2.4 * visualStrength)) % 1;
+                }
+            });
+        }
+
+        // 创建道路
+        function createRoad() {
+            const segmentLength = config.roadLength / config.segments;
+            const geometry = new THREE.PlaneGeometry(config.roadWidth, segmentLength);
+            roadMaterial = createRoadMaterial();
+
+            for (let i = 0; i < config.segments; i++) {
+                const segment = new THREE.Mesh(geometry, roadMaterial);
+                segment.rotation.x = -Math.PI / 2;
+                segment.position.set(0, 0, -i * segmentLength);
+                roadSegments.push(segment);
+                scene.add(segment);
+
+                // 生成障碍物和积分
+                generateObjects(-i * segmentLength, segmentLength);
+            }
+        }
+
+        function createRoadMaterial() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
+            gradient.addColorStop(0, '#252938');
+            gradient.addColorStop(0.5, '#34384c');
+            gradient.addColorStop(1, '#252938');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+            for (let y = 0; y < canvas.height; y += 26) {
+                ctx.beginPath();
+                ctx.moveTo(0, y + (Math.random() * 4));
+                ctx.lineTo(canvas.width, y + (Math.random() * 4));
+                ctx.stroke();
+            }
+
+            ctx.strokeStyle = 'rgba(100,220,255,0.25)';
+            ctx.lineWidth = 3;
+            ctx.setLineDash([18, 14]);
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2, 0);
+            ctx.lineTo(canvas.width / 2, canvas.height);
+            ctx.stroke();
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            texture.repeat.set(1, 5);
+            applyTextureClarity(texture);
+
+            return new THREE.MeshStandardMaterial({
+                map: texture,
+                color: 0xffffff,
+                roughness: 0.78,
+                metalness: 0.14,
+                side: THREE.DoubleSide,
+                emissive: 0x141a26,
+                emissiveIntensity: 0.28
+            });
+        }
+
+        function drawBlinkFace(faceData, timeMs) {
+            const { canvas, ctx, texture, palette } = faceData;
+            const w = canvas.width;
+            const h = canvas.height;
+
+            if (timeMs > faceData.nextBlinkAt) {
+                faceData.blinking = true;
+                faceData.blinkProgress = 1;
+                faceData.nextBlinkAt = timeMs + 900 + Math.random() * 1300;
+            }
+
+            if (faceData.blinking) {
+                faceData.blinkProgress -= 0.055;
+                if (faceData.blinkProgress <= 0) {
+                    faceData.blinking = false;
+                    faceData.blinkProgress = 0;
+                }
+            }
+
+            // 放慢眨动过程，保证肉眼可见
+            const eyeOpen = faceData.blinking ? Math.max(0.05, faceData.blinkProgress) : 1;
+
+            // 正面底色与方块保持一致，避免“正面和其他面颜色不一样”
+            ctx.fillStyle = palette.top;
+            ctx.fillRect(0, 0, w, h);
+
+            // 冰蓝竖向椭圆眼（与漩涡线条同色相）
+            const eyeCenterY = 37;
+            const eyeRx = 5.8;
+            const eyeRy = Math.max(1.4, 10.8 * eyeOpen);
+            const leftEyeX = 32;
+            const rightEyeX = w - 32;
+
+            // 与漩涡线条 ice 颜色一致：rgb(170, 220, 255)
+            ctx.fillStyle = 'rgba(170, 220, 255, 1)';
+            ctx.strokeStyle = 'rgba(225, 245, 255, 1)';
+            ctx.lineWidth = 1.4;
+            ctx.shadowColor = 'rgba(170, 220, 255, 0.75)';
+            ctx.shadowBlur = 5;
+
+            const drawEye = (cx) => {
+                ctx.beginPath();
+                ctx.ellipse(cx, eyeCenterY, eyeRx, eyeRy, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                // 眼睛高光
+                ctx.fillStyle = 'rgba(245,254,255,0.75)';
+                ctx.beginPath();
+                ctx.ellipse(cx - 1.8, eyeCenterY - Math.min(eyeRy * 0.4, 2.2), 1.5, Math.max(0.8, eyeRy * 0.22), 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = 'rgba(170, 220, 255, 1)';
+            };
+
+            drawEye(leftEyeX);
+            drawEye(rightEyeX);
+
+            // 闭眼时仅在眼区加轻微眼睑压暗，避免整面出现色块
+            const lidAlpha = (1 - eyeOpen) * 0.45;
+            if (lidAlpha > 0.01) {
+                ctx.fillStyle = `rgba(88, 164, 202, ${lidAlpha.toFixed(3)})`;
+                ctx.beginPath();
+                ctx.ellipse(leftEyeX, eyeCenterY - 1, eyeRx + 3, 4.2, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.ellipse(rightEyeX, eyeCenterY - 1, eyeRx + 3, 4.2, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // 重置阴影，避免影响同一画布的后续绘制
+            ctx.shadowBlur = 0;
+
+            texture.needsUpdate = true;
+        }
+
+        function createVortexTexture() {
+            const canvas = document.createElement('canvas');
+            const vortexTexSize = isMobile ? (mobileLowTier ? 384 : 512) : 1024;
+            canvas.width = vortexTexSize;
+            canvas.height = vortexTexSize;
+            const ctx = canvas.getContext('2d');
+            const c = canvas.width / 2;
+            const maxR = c * 0.92;
+            const rInner = 10;
+
+            // 透明底：只画漩涡线条主体
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 干净通透的亮白 / 冰蓝（不发脏、不偏紫）
+            const colors = {
+                glow: 'rgba(120, 200, 255, 0.05)',
+                ice: 'rgba(170, 220, 255, 0.46)',
+                white: 'rgba(255, 255, 255, 0.55)'
+            };
+
+            const drawSpiralBand = (bandIndex, bandCount) => {
+                // 外圈更疏、内圈更紧：turns 随 bandIndex 增加
+                const uBand = bandIndex / Math.max(1, bandCount - 1); // 0外 -> 1内
+                const turns = 3.2 + uBand * 5.2; // 内圈更紧凑
+                const maxTheta = turns * Math.PI * 2;
+
+                // 外圈线更粗，内圈更细（外宽内窄）
+                const wOuter = 26;
+                const wInner = 1.0;
+                const bandWidth = wInner + (wOuter - wInner) * Math.pow(1 - uBand, 1.25);
+
+                // 该层占用的半径区间：外层跨度大，内层跨度小，层层递进
+                const spanBase = (maxR - rInner);
+                const span = spanBase * (0.22 + 0.28 * Math.pow(1 - uBand, 1.2));
+                const startR = maxR - (spanBase * (0.08 + uBand * 0.82));
+                const endR = Math.max(rInner, startR - span);
+
+                const steps = isMobile ? (mobileLowTier ? 420 : 560) : 1200;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+
+                // 只给“最外圈靠近边缘”的螺旋线条加外发光，内圈绝对不加光
+                const isOuterBand = bandIndex === 0;
+                const glowStartR = maxR * 0.84;      // 仅在最外缘附近出现辉光
+                const glowClipInnerR = maxR * 0.82;  // 防止辉光向内侵入导致糊
+
+                for (let i = 1; i <= steps; i++) {
+                    const t = i / steps;
+                    // 由外到内收缩（自然透视：靠中心更紧密）
+                    const theta = t * maxTheta;
+                    const tight = 1 + uBand * 0.6;
+                    const r = startR - Math.pow(t, 1.18 + uBand * 0.35) * (startR - endR);
+
+                    const x = c + Math.cos(theta * tight) * r;
+                    const y = c + Math.sin(theta * tight) * r;
+                    const prevT = (i - 1) / steps;
+                    const prevTheta = prevT * maxTheta;
+                    const prevR = startR - Math.pow(prevT, 1.18 + uBand * 0.35) * (startR - endR);
+                    const px = c + Math.cos(prevTheta * tight) * prevR;
+                    const py = c + Math.sin(prevTheta * tight) * prevR;
+
+                    const w = Math.max(0.8, bandWidth * (0.22 + 0.78 * (1 - t))); // 向中心变细
+                    const rMid = (r + prevR) * 0.5;
+
+                    // 光效：仅最外圈螺旋线条的外侧辉光（不影响内圈）
+                    // 通过“仅外缘半径段 + 径向裁剪”避免把内部线条糊成一团
+                    if (isOuterBand && rMid >= glowStartR) {
+                        ctx.save();
+                        // 只允许绘制在外缘区域（r >= glowClipInnerR）
+                        ctx.beginPath();
+                        ctx.arc(c, c, maxR * 1.05, 0, Math.PI * 2);
+                        ctx.arc(c, c, glowClipInnerR, 0, Math.PI * 2, true);
+                        ctx.clip();
+
+                        ctx.strokeStyle = colors.glow;
+                        ctx.globalAlpha = 0.04;
+                        ctx.lineWidth = w * 2.8;
+                        ctx.beginPath();
+                        ctx.moveTo(px, py);
+                        ctx.lineTo(x, y);
+                        ctx.stroke();
+
+                        ctx.strokeStyle = colors.glow;
+                        ctx.globalAlpha = 0.022;
+                        ctx.lineWidth = w * 4.8;
+                        ctx.beginPath();
+                        ctx.moveTo(px, py);
+                        ctx.lineTo(x, y);
+                        ctx.stroke();
+
+                        // 第3层：极淡超宽羽化，强调晕染感，不增加亮边感
+                        ctx.strokeStyle = colors.glow;
+                        ctx.globalAlpha = 0.012;
+                        ctx.lineWidth = w * 6.2;
+                        ctx.beginPath();
+                        ctx.moveTo(px, py);
+                        ctx.lineTo(x, y);
+                        ctx.stroke();
+
+                        ctx.restore();
+                    }
+
+                    // 冰蓝主体
+                    ctx.strokeStyle = colors.ice;
+                    ctx.globalAlpha = 0.33 + 0.13 * (1 - t);
+                    ctx.lineWidth = w * 0.95;
+                    ctx.beginPath();
+                    ctx.moveTo(px, py);
+                    ctx.lineTo(x, y);
+                    ctx.stroke();
+
+                    // 白色高光（更细）
+                    ctx.strokeStyle = colors.white;
+                    ctx.globalAlpha = 0.21 + 0.15 * (1 - t);
+                    ctx.lineWidth = Math.max(0.7, w * 0.22);
+                    ctx.beginPath();
+                    ctx.moveTo(px, py);
+                    ctx.lineTo(x, y);
+                    ctx.stroke();
+                }
+            };
+
+            // 多层同心嵌套
+            const bandCount = 4;
+            // 先画内圈（清晰锐利），最后画外圈并添加外缘辉光，避免内圈被糊
+            for (let b = bandCount - 1; b >= 0; b--) {
+                drawSpiralBand(b, bandCount);
+            }
+
+            // 中心自然向内“吞噬”暗化（仍透明背景，不画外部底）
+            const centerFade = ctx.createRadialGradient(c, c, 0, c, c, c * 0.18);
+            centerFade.addColorStop(0, 'rgba(0,0,0,0.35)');
+            centerFade.addColorStop(0.55, 'rgba(0,0,0,0.12)');
+            centerFade.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = centerFade;
+            ctx.beginPath();
+            ctx.arc(c, c, c * 0.18, 0, Math.PI * 2);
+            ctx.fill();
+
+            const texture = new THREE.CanvasTexture(canvas);
+            applyTextureClarity(texture);
+            return texture;
+        }
+
+        function createVortexRingTexture({ reverse = false, phaseOffset = 0 } = {}) {
+            const canvas = document.createElement('canvas');
+            const texSize = isMobile ? (mobileLowTier ? 384 : 512) : 1024;
+            canvas.width = texSize;
+            canvas.height = texSize;
+            const ctx = canvas.getContext('2d');
+            const c = texSize / 2;
+            const outerR = c * 0.92;
+            const innerR = c * 0.56;
+
+            ctx.clearRect(0, 0, texSize, texSize);
+
+            const colors = {
+                glow: 'rgba(120, 200, 255, 0.05)',
+                ice: 'rgba(170, 220, 255, 0.46)',
+                white: 'rgba(255, 255, 255, 0.55)'
+            };
+
+            // 仅在环形区域内绘制，保持标准正圆中空结构
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(c, c, outerR, 0, Math.PI * 2);
+            ctx.arc(c, c, innerR, 0, Math.PI * 2, true);
+            ctx.clip();
+
+            const lineCount = 2; // 每层2条，两层共4条
+            const turnsByLine = reverse ? [3.9, 3.05] : [3.35, 4.25]; // 线条长度不同，整体更紧凑
+            const steps = isMobile ? (mobileLowTier ? 300 : 420) : 740;
+            const baseWidth = isMobile ? (mobileLowTier ? 7.4 : 8.1) : 8.5; // 稍微加粗
+            const direction = reverse ? -1 : 1;
+
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            for (let line = 0; line < lineCount; line++) {
+                const phase = phaseOffset + (line / lineCount) * Math.PI * 2;
+                const maxTheta = turnsByLine[line] * Math.PI * 2;
+                for (let i = 1; i <= steps; i++) {
+                    const t = i / steps;
+                    const prevT = (i - 1) / steps;
+
+                    // 交替环绕：四条主线共享同一旋涡趋势，并通过相位错开形成交错结构
+                    const theta = phase + direction * (t * maxTheta) + Math.sin((t * 2 + line * 0.5) * Math.PI) * 0.03;
+                    const prevTheta = phase + direction * (prevT * maxTheta) + Math.sin((prevT * 2 + line * 0.5) * Math.PI) * 0.03;
+
+                    const r = outerR - Math.pow(t, 1.06) * (outerR - innerR);
+                    const prevR = outerR - Math.pow(prevT, 1.06) * (outerR - innerR);
+
+                    const x = c + Math.cos(theta) * r;
+                    const y = c + Math.sin(theta) * r;
+                    const px = c + Math.cos(prevTheta) * prevR;
+                    const py = c + Math.sin(prevTheta) * prevR;
+
+                    // 粗细均匀：仅极轻微变化，避免视觉结团
+                    const w = baseWidth * (0.96 + 0.04 * (1 - t));
+
+                    ctx.strokeStyle = colors.glow;
+                    ctx.globalAlpha = 0.022;
+                    ctx.lineWidth = w * 2.1;
+                    ctx.beginPath();
+                    ctx.moveTo(px, py);
+                    ctx.lineTo(x, y);
+                    ctx.stroke();
+
+                    ctx.strokeStyle = colors.ice;
+                    ctx.globalAlpha = 0.33 + 0.13 * (1 - t);
+                    ctx.lineWidth = w;
+                    ctx.beginPath();
+                    ctx.moveTo(px, py);
+                    ctx.lineTo(x, y);
+                    ctx.stroke();
+
+                    ctx.strokeStyle = colors.white;
+                    ctx.globalAlpha = 0.21 + 0.15 * (1 - t);
+                    ctx.lineWidth = Math.max(0.9, w * 0.22);
+                    ctx.beginPath();
+                    ctx.moveTo(px, py);
+                    ctx.lineTo(x, y);
+                    ctx.stroke();
+                }
+            }
+
+            ctx.restore();
+
+            // 再次硬挖空中心，确保中间完全镂空
+            ctx.save();
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.beginPath();
+            ctx.arc(c, c, innerR * 1.04, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.ClampToEdgeWrapping;
+            texture.wrapT = THREE.ClampToEdgeWrapping;
+            texture.center.set(0.5, 0.5);
+            applyTextureClarity(texture);
+            return texture;
+        }
+
+        function createDonutObstacle(obstacle) {
+            const ringTextureA = createVortexRingTexture({ reverse: false, phaseOffset: 0 });
+            const ringTextureB = createVortexRingTexture({ reverse: true, phaseOffset: Math.PI / 8 });
+
+            const innerRadius = 0.58;
+            const outerRadius = 0.92;
+            const ringGeo = new THREE.RingGeometry(innerRadius, outerRadius, 112, 2);
+
+            const frontA = new THREE.Mesh(
+                ringGeo,
+                new THREE.MeshStandardMaterial({
+                    map: ringTextureA,
+                    color: 0xffffff,
+                    transparent: true,
+                    opacity: 0.95,
+                    depthWrite: false,
+                    side: THREE.DoubleSide,
+                    roughness: 0.25,
+                    metalness: 0.05,
+                    emissive: 0xbfe8ff,
+                    emissiveMap: ringTextureA,
+                    emissiveIntensity: 0.35,
+                    blending: THREE.AdditiveBlending
+                })
+            );
+            const frontB = new THREE.Mesh(
+                ringGeo,
+                new THREE.MeshStandardMaterial({
+                    map: ringTextureB,
+                    color: 0xffffff,
+                    transparent: true,
+                    opacity: 0.9,
+                    depthWrite: false,
+                    side: THREE.DoubleSide,
+                    roughness: 0.25,
+                    metalness: 0.05,
+                    emissive: 0xbfe8ff,
+                    emissiveMap: ringTextureB,
+                    emissiveIntensity: 0.35,
+                    blending: THREE.AdditiveBlending
+                })
+            );
+            const backA = frontA.clone();
+            backA.material = frontA.material.clone();
+            backA.material.map = ringTextureA;
+            backA.material.emissiveMap = ringTextureA;
+            backA.rotation.y = Math.PI;
+            const backB = frontB.clone();
+            backB.material = frontB.material.clone();
+            backB.material.map = ringTextureB;
+            backB.material.emissiveMap = ringTextureB;
+            backB.rotation.y = Math.PI;
+
+            frontA.position.z = 0.11;
+            frontB.position.z = 0.12;
+            backA.position.z = -0.11;
+            backB.position.z = -0.12;
+
+            obstacle.add(frontA);
+            obstacle.add(frontB);
+            obstacle.add(backA);
+            obstacle.add(backB);
+
+            // 边界判定与可视圆环保持一致：由几何内外半径推导环中心半径和管半径
+            const ringRadius = (innerRadius + outerRadius) * 0.5;
+            const tubeRadius = (outerRadius - innerRadius) * 0.5;
+            // 视觉上圆环是“前后双面薄环”，因此额外记录深度半厚度，避免Z向碰撞过厚
+            const depthHalf = Math.max(
+                Math.abs(frontA.position.z),
+                Math.abs(frontB.position.z),
+                Math.abs(backA.position.z),
+                Math.abs(backB.position.z)
+            ) + 0.015;
+            obstacle.userData.collider = {
+                type: 'torus',
+                ringRadius,
+                tubeRadius,
+                innerRadius,
+                outerRadius,
+                depthHalf,
+                isArch: true
+            };
+            obstacle.userData.type = 'donut';
+            obstacle.userData.ringTextureA = ringTextureA;
+            obstacle.userData.ringTextureB = ringTextureB;
+            obstacle.userData.ringFrontA = frontA;
+            obstacle.userData.ringBackA = backA;
+            obstacle.userData.ringFrontB = frontB;
+            obstacle.userData.ringBackB = backB;
+            obstacle.userData.ringPhase = Math.random() * Math.PI * 2;
+        }
+
+        function createFaceBlockObstacle(obstacle) {
+            const baseColors = [0x5c72cb, 0x5c72cb, 0x5c72cb, 0x5c72cb, 0x5c72cb, 0x5c72cb];
+            const faceCanvas = document.createElement('canvas');
+            faceCanvas.width = 96;
+            faceCanvas.height = 96;
+            const faceCtx = faceCanvas.getContext('2d');
+            const faceTexture = new THREE.CanvasTexture(faceCanvas);
+
+            const solidCanvas = document.createElement('canvas');
+            solidCanvas.width = 96;
+            solidCanvas.height = 96;
+            const solidCtx = solidCanvas.getContext('2d');
+            solidCtx.fillStyle = '#5c72cb';
+            solidCtx.fillRect(0, 0, solidCanvas.width, solidCanvas.height);
+            const solidTexture = new THREE.CanvasTexture(solidCanvas);
+
+            const palette = { top: '#5c72cb', bottom: '#5c72cb' };
+            drawBlinkFace({
+                canvas: faceCanvas,
+                ctx: faceCtx,
+                texture: faceTexture,
+                palette,
+                nextBlinkAt: Number.MAX_SAFE_INTEGER,
+                blinking: false,
+                blinkProgress: 0
+            }, 0);
+
+            const mats = [
+                new THREE.MeshStandardMaterial({
+                    color: baseColors[0],
+                    map: solidTexture,
+                    roughness: 0.22,
+                    metalness: 0.08,
+                    emissive: 0xaadcff,
+                    emissiveMap: solidTexture,
+                    emissiveIntensity: 0.9
+                }),
+                new THREE.MeshStandardMaterial({
+                    color: baseColors[1],
+                    map: solidTexture,
+                    roughness: 0.22,
+                    metalness: 0.08,
+                    emissive: 0xaadcff,
+                    emissiveMap: solidTexture,
+                    emissiveIntensity: 0.9
+                }),
+                new THREE.MeshStandardMaterial({
+                    color: baseColors[2],
+                    map: solidTexture,
+                    roughness: 0.22,
+                    metalness: 0.08,
+                    emissive: 0xaadcff,
+                    emissiveMap: solidTexture,
+                    emissiveIntensity: 0.9
+                }),
+                new THREE.MeshStandardMaterial({
+                    color: baseColors[3],
+                    map: solidTexture,
+                    roughness: 0.22,
+                    metalness: 0.08,
+                    emissive: 0xaadcff,
+                    emissiveMap: solidTexture,
+                    emissiveIntensity: 0.9
+                }),
+                new THREE.MeshStandardMaterial({
+                    color: baseColors[4],
+                    map: faceTexture,
+                    roughness: 0.22,
+                    metalness: 0.08,
+                    emissive: 0xaadcff,
+                    emissiveMap: faceTexture,
+                    emissiveIntensity: 0.9
+                }),
+                new THREE.MeshStandardMaterial({
+                    color: baseColors[5],
+                    map: solidTexture,
+                    roughness: 0.22,
+                    metalness: 0.08,
+                    emissive: 0xaadcff,
+                    emissiveMap: solidTexture,
+                    emissiveIntensity: 0.9
+                })
+            ];
+
+            const block = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mats);
+            obstacle.add(block);
+            obstacle.userData.collider = { type: 'box', halfX: 0.5, halfY: 0.5, halfZ: 0.5 };
+            obstacle.userData.type = 'faceBlock';
+            obstacle.userData.blinkFace = {
+                canvas: faceCanvas,
+                ctx: faceCtx,
+                texture: faceTexture,
+                palette,
+                nextBlinkAt: 650 + Math.random() * 1500,
+                blinking: false,
+                blinkProgress: 0
+            };
+        }
+
+        function createCandleObstacle(obstacle) {
+            const waxBody = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.42, 0.48, 1, 20),
+                new THREE.MeshStandardMaterial({
+                    color: 0xf5ecda,
+                    roughness: 0.82,
+                    metalness: 0.02
+                })
+            );
+            obstacle.add(waxBody);
+
+            const waxTop = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.34, 0.38, 0.22, 20),
+                new THREE.MeshStandardMaterial({
+                    color: 0xf8f2e4,
+                    roughness: 0.86,
+                    metalness: 0.01
+                })
+            );
+            waxTop.position.y = 0.48;
+            obstacle.add(waxTop);
+
+            for (let i = 0; i < 3; i++) {
+                const drip = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.08, 0.22 + i * 0.04, 0.06),
+                    new THREE.MeshStandardMaterial({
+                        color: i % 2 === 0 ? 0xf1e5cf : 0xf8f1df,
+                        roughness: 0.92,
+                        metalness: 0
+                    })
+                );
+                drip.position.set(-0.18 + i * 0.18, 0.2 - i * 0.06, 0.43);
+                obstacle.add(drip);
+            }
+
+            const wick = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.015, 0.018, 0.12, 8),
+                new THREE.MeshStandardMaterial({ color: 0x2d1c12, roughness: 1, metalness: 0 })
+            );
+            wick.position.y = 0.66;
+            obstacle.add(wick);
+
+            const flameOuter = new THREE.Mesh(
+                new THREE.ConeGeometry(0.12, 0.32, 10),
+                new THREE.MeshStandardMaterial({
+                    color: 0xfff2c5,
+                    emissive: 0xffe08a,
+                    emissiveIntensity: 1.2,
+                    transparent: true,
+                    opacity: 0.95
+                })
+            );
+            const flameInner = new THREE.Mesh(
+                new THREE.ConeGeometry(0.06, 0.2, 10),
+                new THREE.MeshStandardMaterial({
+                    color: 0xff8e4f,
+                    emissive: 0xff6d2e,
+                    emissiveIntensity: 0.9
+                })
+            );
+            flameOuter.position.y = 0.84;
+            flameInner.position.y = 0.82;
+            obstacle.add(flameOuter);
+            obstacle.add(flameInner);
+
+            obstacle.userData.collider = { type: 'cylinder', radius: 0.48, halfHeight: 0.5 };
+            obstacle.userData.type = 'candle';
+            obstacle.userData.flameOuter = flameOuter;
+            obstacle.userData.flameInner = flameInner;
+            obstacle.userData.flamePhase = Math.random() * Math.PI * 2;
+        }
+
+        function createVortexObstacle(obstacle) {
+            const texture = vortexTexturePool.length
+                ? vortexTexturePool[Math.floor(Math.random() * vortexTexturePool.length)]
+                : createVortexTexture();
+            texture.wrapS = THREE.ClampToEdgeWrapping;
+            texture.wrapT = THREE.ClampToEdgeWrapping;
+            texture.center.set(0.5, 0.5);
+
+            const front = new THREE.Mesh(
+                new THREE.CircleGeometry(0.55, 56),
+                new THREE.MeshStandardMaterial({
+                    map: texture,
+                    color: 0xffffff,
+                    transparent: true,
+                    opacity: 1,
+                    depthWrite: false,
+                    side: THREE.DoubleSide,
+                    roughness: 0.25,
+                    metalness: 0.05,
+                    emissive: 0xbfe8ff,
+                    emissiveIntensity: 0.35,
+                    emissiveMap: texture,
+                    blending: THREE.AdditiveBlending
+                })
+            );
+            const back = front.clone();
+            back.material = front.material.clone();
+            back.material.map = texture;
+            back.rotation.y = Math.PI;
+            front.position.z = 0.09;
+            back.position.z = -0.09;
+            obstacle.add(front);
+            obstacle.add(back);
+
+            // 使用与可视平面对齐的圆盘碰撞体，避免边界提前判死
+            obstacle.userData.collider = {
+                type: 'disk',
+                radius: 0.5,
+                depthHalf: 0.1,
+                edgeForgiveness: 0.04,
+                sphereForgiveness: 0.06
+            };
+            obstacle.userData.type = 'vortex';
+            // 漩涡尺寸多样性：受控随机，避免过小/过大
+            obstacle.userData.sizeFactor = 0.88 + Math.random() * 0.38; // [0.88, 1.26]
+            obstacle.userData.vortexTexture = texture;
+            obstacle.userData.vortexFront = front;
+            obstacle.userData.vortexBack = back;
+            obstacle.userData.vortexPhase = Math.random() * Math.PI * 2;
+        }
+
+        // 生成障碍物和积分
+        function generateObjects(startZ, segmentLength) {
+            const columns = [-4.5, -1.5, 1.5, 4.5];
+            const availableColumns = [...columns];
+            let spawnedObstacleCount = 0;
+            const segmentCollectibleSpots = [];
+            const collectibleMinRowGap = 4.2;
+            const collectibleNearRowGap = 6.2;
+            const collectibleMinXGapWhenNearRow = 2.2;
+            const rollCollectibleType = () => {
+                const r = Math.random();
+                const redP = redCollectibleSpawnProbability;
+                const blueP = blueCollectibleSpawnProbability;
+                if (r < redP) return 'red';
+                if (r < redP + blueP) return 'blue';
+                return 'normal';
+            };
+
+            const canPlaceCollectibleAt = (x, z, { allowObstacleOverlap = false } = {}) => {
+                if (z >= -15) return false;
+
+                // 与障碍物保持基本安全距离
+                if (!allowObstacleOverlap) {
+                    for (const obstacle of obstacles) {
+                        if (Math.abs(z - obstacle.position.z) < 3.2) {
+                            return false;
+                        }
+                    }
+                }
+
+                // 同一路段内：避免两个积分几乎在同一“水平排”导致无法同时收集
+                for (const spot of segmentCollectibleSpots) {
+                    const dz = Math.abs(z - spot.z);
+                    const dx = Math.abs(x - spot.x);
+
+                    // 前后太接近，直接禁止
+                    if (dz < collectibleMinRowGap) {
+                        return false;
+                    }
+
+                    // 前后较近时，若横向也近则同样禁止
+                    if (dz < collectibleNearRowGap && dx < collectibleMinXGapWhenNearRow) {
+                        return false;
+                    }
+                }
+
+                return true;
+            };
+
+            const createCollectibleAt = (
+                x,
+                z,
+                y = 1,
+                baseScale = 1.2,
+                fadeStartZ = emergenceStartZ,
+                fadeEndZ = emergenceEndZ,
+                options = {}
+            ) => {
+                if (!canPlaceCollectibleAt(x, z, options)) {
+                    return null;
+                }
+                const collectibleType = options.collectibleType || 'normal';
+                const collectible = createCollectible(collectibleType);
+                collectible.userData.finalY = y;
+                collectible.userData.hiddenY = -1.8;
+                collectible.userData.fadeStartZ = fadeStartZ;
+                collectible.userData.fadeEndZ = fadeEndZ;
+                collectible.userData.baseScale = baseScale;
+                collectible.userData.collected = false;
+                collectible.userData.collectibleType = collectibleType;
+                collectible.userData.scoreValue = 10;
+                // 若为红色积分，随机分配死亡概率与对应分值，并创建悬浮概率标签
+                if (collectibleType === 'red') {
+                    const prob = redDeathProbabilityOptions[Math.floor(Math.random() * redDeathProbabilityOptions.length)];
+                    collectible.userData.deathProbability = prob; // 例如 0.05 表示 5%
+                    // 分值按百分比映射：5% -> 50, 10% -> 100, ... (即 prob * 1000)
+                    collectible.userData.scoreValue = Math.round(prob * 1000);
+                    try {
+                        const label = document.createElement('div');
+                        label.className = 'prob-label prob-label--red';
+                        label.textContent = `${Math.round(prob * 100)}%`;
+                        label.style.position = 'absolute';
+                        label.style.pointerEvents = 'none';
+                        document.body.appendChild(label);
+                        collectible.userData.probLabelEl = label;
+                    } catch (e) {
+                        // ignore DOM creation errors in non-browser contexts
+                    }
+                }
+                collectible.position.set(x, collectible.userData.hiddenY, z);
+                collectible.scale.set(baseScale, baseScale, baseScale);
+                collectibles.push(collectible);
+                scene.add(collectible);
+                segmentCollectibleSpots.push({ x, z });
+                currentLevelCollectibleSpawned++;
+                return collectible;
+            };
+
+            // 根据关卡计算障碍物生成概率（关卡越高，概率越高）
+            const obstacleChance = Math.min(0.98, 0.7 + (game.level - 1) * 0.08);
+
+            // 每个路段生成1-2个障碍物
+            // 关卡3开始才增加障碍物数量，避免难度陡升
+            const obstacleCount = game.level <= 2 ? 1 : (game.level <= 3 ? (Math.random() > 0.5 ? 2 : 1) : (Math.random() > 0.3 ? 2 : 1));
+
+            // 计算障碍物的均匀分布位置（减小间距，增加密度）
+            const spacing = segmentLength / (obstacleCount + 2);
+
+            for (let i = 0; i < obstacleCount && availableColumns.length > 0; i++) {
+                if (Math.random() < obstacleChance) {
+                    const isWide = Math.random() > 0.5 && availableColumns.length >= 2;
+
+                    if (isWide) {
+                        const index = Math.floor(Math.random() * (availableColumns.length - 1));
+                        const x1 = availableColumns[index];
+                        const x2 = availableColumns[index + 1];
+                        const x = (x1 + x2) / 2;
+                        availableColumns.splice(index, 2);
+
+                        // 均匀分布的Z位置，添加随机偏移，避免过于整齐
+                        const z = startZ - (i + 1) * spacing + (Math.random() - 0.5) * (spacing * 0.5);
+                        // 确保障碍物不会生成在小球初始位置附近，距离更远
+                        if (z < -20) {
+                            const obstacle = createObstacle(true);
+                            obstacle.position.set(x, obstacle.userData.hiddenY, z);
+                            if (obstacle.userData.type === 'donut') {
+                                // 恢复正圆：使用等比缩放
+                                obstacle.scale.setScalar(1.88);
+                            } else {
+                                obstacle.scale.set(4, 2, 2);
+                            }
+                            obstacles.push(obstacle);
+                            scene.add(obstacle);
+                            spawnedObstacleCount++;
+
+                            // 允许积分出现在圆环中间（圆环中心孔）
+                            if (obstacle.userData.type === 'donut') {
+                                const ringCenterY = obstacle.userData.finalY ?? 2.55;
+                                const ringCollectibleChance = game.level >= 3 ? 0.65 : 0.5;
+                                if (Math.random() < ringCollectibleChance) {
+                                    createCollectibleAt(
+                                        x,
+                                        z + (Math.random() - 0.5) * 0.6,
+                                        ringCenterY,
+                                        1.1,
+                                        emergenceStartZ,
+                                        emergenceEndZ,
+                                        { allowObstacleOverlap: true, collectibleType: rollCollectibleType() }
+                                    );
+                                }
+                            }
+                        }
+                    } else {
+                        const index = Math.floor(Math.random() * availableColumns.length);
+                        const x = availableColumns[index];
+                        availableColumns.splice(index, 1);
+
+                        // 均匀分布的Z位置，添加随机偏移，避免过于整齐
+                        const z = startZ - (i + 1) * spacing + (Math.random() - 0.5) * (spacing * 0.5);
+                        // 确保障碍物不会生成在小球初始位置附近，距离更远
+                        if (z < -20) {
+                            const obstacle = createObstacle(false);
+                            obstacle.position.set(x, obstacle.userData.hiddenY, z);
+                            obstacle.scale.set(2, 2, 2);
+                            if (obstacle.userData.type === 'vortex') {
+                                const sizeFactor = obstacle.userData.sizeFactor || 1;
+                                obstacle.scale.multiplyScalar(sizeFactor);
+                            }
+                            obstacles.push(obstacle);
+                            scene.add(obstacle);
+                            spawnedObstacleCount++;
+                        }
+                    }
+                }
+            }
+
+            // 障碍物保底：避免出现长段路一个障碍都没有
+            if (spawnedObstacleCount === 0) {
+                const forcedZ = Math.min(-22, startZ - segmentLength * (0.58 + Math.random() * 0.16));
+                const forceWide = availableColumns.length >= 2 && Math.random() > 0.45;
+                let forcedX = 0;
+
+                if (forceWide) {
+                    const src = availableColumns.length >= 2 ? availableColumns : columns;
+                    const index = Math.floor(Math.random() * (src.length - 1));
+                    const x1 = src[index];
+                    const x2 = src[index + 1];
+                    forcedX = (x1 + x2) / 2;
+                } else {
+                    const src = availableColumns.length > 0 ? availableColumns : columns;
+                    const index = Math.floor(Math.random() * src.length);
+                    forcedX = src[index];
+                }
+
+                const forcedObstacle = createObstacle(forceWide);
+                forcedObstacle.position.set(forcedX, forcedObstacle.userData.hiddenY, forcedZ);
+                if (forceWide) {
+                    if (forcedObstacle.userData.type === 'donut') {
+                        forcedObstacle.scale.setScalar(1.88);
+                    } else {
+                        forcedObstacle.scale.set(4, 2, 2);
+                    }
+                } else {
+                    forcedObstacle.scale.set(2, 2, 2);
+                    if (forcedObstacle.userData.type === 'vortex') {
+                        const sizeFactor = forcedObstacle.userData.sizeFactor || 1;
+                        forcedObstacle.scale.multiplyScalar(sizeFactor);
+                    }
+                }
+                obstacles.push(forcedObstacle);
+                scene.add(forcedObstacle);
+
+                // 保底障碍如果是圆环，也给一个中心积分机会
+                if (forcedObstacle.userData.type === 'donut' && Math.random() < 0.72) {
+                    const ringCenterY = forcedObstacle.userData.finalY ?? 2.55;
+                    createCollectibleAt(
+                        forcedX,
+                        forcedZ + (Math.random() - 0.5) * 0.5,
+                        ringCenterY,
+                        1.1,
+                        emergenceStartZ,
+                        emergenceEndZ,
+                        { allowObstacleOverlap: true, collectibleType: rollCollectibleType() }
+                    );
+                }
+            }
+
+            // 生成积分（增加积分生成概率）
+            // 关卡越高，积分生成概率越高
+            const collectibleChance = Math.min(0.98, 0.9 + (game.level - 1) * 0.02);
+            if (Math.random() < collectibleChance) { // 随关卡增加的积分生成概率
+                // 选择积分的X位置
+                let x;
+                if (availableColumns.length > 0) {
+                    // 从剩余列中随机选择
+                    const index = Math.floor(Math.random() * availableColumns.length);
+                    x = availableColumns[index];
+                } else {
+                    // 如果没有剩余列，从所有列中随机选择
+                    const index = Math.floor(Math.random() * columns.length);
+                    x = columns[index];
+                }
+
+                // 积分放在路段中间，添加随机偏移
+                const z = startZ - segmentLength / 2 + (Math.random() - 0.5) * 3;
+                createCollectibleAt(
+                    x,
+                    z,
+                    1,
+                    1.2,
+                    emergenceStartZ,
+                    emergenceEndZ,
+                    { collectibleType: rollCollectibleType() }
+                );
+            }
+
+            // 第四关及以上，额外增加积分生成机会
+            if (game.level >= 4 && Math.random() < 0.5) { // 50% 概率额外生成一个积分
+                // 选择积分的X位置（与之前不同的列）
+                let x;
+                const usedColumns = new Set();
+                // 收集已使用的列
+                obstacles.forEach(obstacle => {
+                    usedColumns.add(obstacle.position.x);
+                });
+                // 收集可用的列
+                const possibleColumns = columns.filter(col => !usedColumns.has(col));
+
+                if (possibleColumns.length > 0) {
+                    const index = Math.floor(Math.random() * possibleColumns.length);
+                    x = possibleColumns[index];
+                } else {
+                    const index = Math.floor(Math.random() * columns.length);
+                    x = columns[index];
+                }
+
+                // 积分放在路段中，与第一个积分位置不同
+                const z = startZ - segmentLength / 2 + (Math.random() - 0.5) * 6;
+                createCollectibleAt(
+                    x,
+                    z,
+                    1,
+                    1.2,
+                    emergenceStartZ,
+                    emergenceEndZ,
+                    { collectibleType: rollCollectibleType() }
+                );
+            }
+        }
+
+        // 创建障碍物
+        function createObstacle(isWide) {
+            const obstacle = new THREE.Group();
+
+            if (isWide) {
+                const types = [
+                    'faceBlock',
+                    'candle',
+                    'donut'
+                ];
+                const type = types[Math.floor(Math.random() * types.length)];
+
+                if (type === 'donut') createDonutObstacle(obstacle);
+                if (type === 'candle') createCandleObstacle(obstacle);
+                if (type === 'faceBlock') createFaceBlockObstacle(obstacle);
+            } else {
+                const types = [
+                    'faceBlock',
+                    'candle',
+                    'vortex'
+                ];
+                const type = types[Math.floor(Math.random() * types.length)];
+
+                if (type === 'vortex') createVortexObstacle(obstacle);
+                if (type === 'candle') createCandleObstacle(obstacle);
+                if (type === 'faceBlock') createFaceBlockObstacle(obstacle);
+            }
+
+            obstacle.userData.isArch = obstacle.userData.type === 'donut';
+            // donut 抬高到完整正圆近乎贴地可见，下半圈不再被地面吞没
+            obstacle.userData.finalY = obstacle.userData.type === 'donut' ? 2.55 : 1;
+            obstacle.userData.hiddenY = -1.2;
+            return obstacle;
+        }
+
+        // 创建积分
+        function createCollectible(collectibleType = 'normal') {
+            const star = new THREE.Group();
+            const isBlueCollectible = collectibleType === 'blue';
+            const isRedCollectible = collectibleType === 'red';
+            const collectiblePalette = isBlueCollectible
+                ? {
+                    rayColor: 0xddfbff,
+                    rayEmissive: 0x50d8ff,
+                    centerColor: 0xeeffff,
+                    centerEmissive: 0x60dfff,
+                    sparkleColor: 0x8cecff
+                }
+                : (isRedCollectible
+                    ? {
+                        rayColor: 0xffc8c8,
+                        rayEmissive: 0xff6b6b,
+                        centerColor: 0xffe6e6,
+                        centerEmissive: 0xff8a8a,
+                        sparkleColor: 0xffc2c2
+                    }
+                    : {
+                        rayColor: 0xffffff,
+                        rayEmissive: 0xfff4d7,
+                        centerColor: 0xffffff,
+                        centerEmissive: 0xffedb0,
+                        sparkleColor: 0xffffff
+                    }
+                );
+
+            const createPointedRayGeometry = (length, width, depth) => {
+                const shape = new THREE.Shape();
+                shape.moveTo(0, length / 2);
+                shape.lineTo(width / 2, 0);
+                shape.lineTo(0, -length / 2);
+                shape.lineTo(-width / 2, 0);
+                shape.closePath();
+                return new THREE.ExtrudeGeometry(shape, {
+                    depth,
+                    bevelEnabled: false
+                });
+            };
+
+            const createSoftSparkleTexture = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 128;
+                canvas.height = 128;
+                const ctx = canvas.getContext('2d');
+                const c = 64;
+
+                const gradient = ctx.createRadialGradient(c, c, 0, c, c, 56);
+                gradient.addColorStop(0, 'rgba(255,255,255,1)');
+                gradient.addColorStop(0.35, 'rgba(255,255,255,0.7)');
+                gradient.addColorStop(1, 'rgba(255,255,255,0)');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, 128, 128);
+
+                const tex = new THREE.CanvasTexture(canvas);
+                tex.needsUpdate = true;
+                return tex;
+            };
+
+            const rayMaterial = new THREE.MeshStandardMaterial({
+                color: collectiblePalette.rayColor,
+                emissive: collectiblePalette.rayEmissive,
+                emissiveIntensity: isBlueCollectible ? 1.15 : (isRedCollectible ? 1.25 : 1.2),
+                roughness: 0.12,
+                metalness: 0.22,
+                transparent: true,
+                opacity: 0.98
+            });
+
+            const rays = [
+                { width: 0.08, length: 0.92, z: 0, rot: 0 },
+                { width: 0.08, length: 0.92, z: 0, rot: Math.PI / 2 },
+                { width: 0.055, length: 0.62, z: 0.01, rot: Math.PI / 4 },
+                { width: 0.055, length: 0.62, z: 0.01, rot: -Math.PI / 4 }
+            ];
+
+            rays.forEach(ray => {
+                const mesh = new THREE.Mesh(createPointedRayGeometry(ray.length, ray.width, 0.02), rayMaterial);
+                mesh.rotation.z = ray.rot;
+                mesh.position.z = ray.z;
+                mesh.position.y = 0;
+                star.add(mesh);
+            });
+
+            const center = new THREE.Mesh(
+                new THREE.SphereGeometry(0.08, 12, 12),
+                new THREE.MeshStandardMaterial({
+                    color: collectiblePalette.centerColor,
+                    emissive: collectiblePalette.centerEmissive,
+                    emissiveIntensity: isBlueCollectible ? 1.05 : (isRedCollectible ? 1.1 : 0.95),
+                    transparent: true,
+                    opacity: 0.9
+                })
+            );
+            star.add(center);
+
+            // 白色光效：小范围柔光粒子环绕，不做包裹球
+            const sparkleTexture = createSoftSparkleTexture();
+            const sparkles = [];
+            const sparkleCount = isMobile ? 4 : 6;
+            for (let i = 0; i < sparkleCount; i++) {
+                const sparkle = new THREE.Sprite(
+                    new THREE.SpriteMaterial({
+                        map: sparkleTexture,
+                        color: collectiblePalette.sparkleColor,
+                        transparent: true,
+                        opacity: 0.36,
+                        depthWrite: false,
+                        blending: THREE.AdditiveBlending
+                    })
+                );
+                sparkle.userData.phase = Math.random() * Math.PI * 2;
+                sparkle.userData.radius = 0.22 + Math.random() * 0.14;
+                sparkle.userData.speed = 1 + Math.random() * 0.9;
+                sparkle.userData.heightOffset = (Math.random() - 0.5) * 0.16;
+                sparkle.userData.size = 0.11 + Math.random() * 0.07;
+                sparkle.scale.setScalar(sparkle.userData.size);
+                star.add(sparkle);
+                sparkles.push(sparkle);
+            }
+            star.userData.sparkles = sparkles;
+            star.userData.opacityNodes = [];
+            star.traverse((node) => {
+                if (node.material && typeof node.material.opacity === 'number') {
+                    star.userData.opacityNodes.push(node);
+                }
+            });
+
+            star.userData.collectibleRadius = 0.26;
+            star.userData.collectibleType = collectibleType;
+            return star;
+        }
+
+        function spawnCollectibleBurst(position, collectibleType = 'normal') {
+            const burst = new THREE.Group();
+            const isBlueCollectible = collectibleType === 'blue';
+            const isRedCollectible = collectibleType === 'red';
+            const burstColor = isBlueCollectible ? 0xd9faff : (isRedCollectible ? 0xffd6d6 : 0xfff0ad);
+            const burstEmissive = isBlueCollectible ? 0x58dcff : (isRedCollectible ? 0xff6b6b : 0xffc65b);
+            const count = isMobile ? 7 : 10;
+            for (let i = 0; i < count; i++) {
+                const ray = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.04, 0.3 + Math.random() * 0.2, 0.04),
+                    new THREE.MeshStandardMaterial({
+                        color: burstColor,
+                        emissive: burstEmissive,
+                        emissiveIntensity: 1,
+                        transparent: true,
+                        opacity: 0.95
+                    })
+                );
+                const angle = (i / count) * Math.PI * 2;
+                ray.position.set(Math.cos(angle) * 0.1, Math.sin(angle) * 0.1, (Math.random() - 0.5) * 0.1);
+                ray.rotation.z = angle;
+                ray.userData.vx = Math.cos(angle) * (0.02 + Math.random() * 0.03);
+                ray.userData.vy = Math.sin(angle) * (0.02 + Math.random() * 0.03);
+                ray.userData.life = 0.5 + Math.random() * 0.25;
+                burst.add(ray);
+            }
+            burst.position.copy(position);
+            burst.userData.life = 0.7;
+            collectibleBursts.push(burst);
+            scene.add(burst);
+        }
+
+        // 处理移动
+        function handleMovement(stepScale = 1) {
+            if (game.gameOver) return;
+
+            let moveX = 0;
+            if (keys['a'] || keys['arrowleft']) moveX -= config.moveSpeed;
+            if (keys['d'] || keys['arrowright']) moveX += config.moveSpeed;
+
+            ball.position.x += moveX;
+
+            // 边界限制
+            const halfRoad = config.roadWidth / 2 - 0.5;
+            ball.position.x = Math.max(-halfRoad, Math.min(halfRoad, ball.position.x));
+
+            // 跳跃与重力（仅单段跳：只有落地后 isGrounded=true 才允许再次起跳）
+            if (!isGrounded || verticalVelocity > 0) {
+                verticalVelocity -= config.jumpGravity * stepScale;
+                ball.position.y += verticalVelocity * stepScale;
+
+                if (ball.position.y <= config.groundY) {
+                    ball.position.y = config.groundY;
+                    verticalVelocity = 0;
+                    isGrounded = true;
+                }
+            }
+        }
+
+        // 更新道路
+        function updateRoad() {
+            if (game.gameOver) return;
+
+            const nowMs = performance.now();
+            const nowSec = nowMs * 0.001;
+            const shouldUpdateVisualFx = !isMobile || (mobileVisualFrameCounter % mobileVisualEffectStep === 0);
+
+            const frameDistance = config.speed;
+            if (sprintDistanceRemaining > 0) {
+                sprintDistanceRemaining = Math.max(0, sprintDistanceRemaining - frameDistance);
+                if (sprintDistanceRemaining <= 0) {
+                    clearSprintState();
+                }
+            }
+
+            game.distance += frameDistance;
+
+            // 检查最大距离
+            if (game.distance >= config.maxDistance) {
+                endGame();
+                return;
+            }
+
+            // 每次更新都检查是否达到关卡目标分数
+            checkLevelUp();
+
+            const segmentLength = config.roadLength / config.segments;
+            if (roadMaterial && roadMaterial.map) {
+                roadMaterial.map.offset.y -= config.speed * 0.04;
+            }
+
+            // 移动路段
+            roadSegments.forEach(segment => {
+                segment.position.z += config.speed;
+                if (segment.position.z > segmentLength) {
+                    scene.remove(segment);
+                    roadSegments.shift();
+
+                    // 创建新路段
+                    const geometry = new THREE.PlaneGeometry(config.roadWidth, segmentLength);
+                    const newSegment = new THREE.Mesh(geometry, roadMaterial);
+                    newSegment.rotation.x = -Math.PI / 2;
+                    newSegment.position.set(0, 0, roadSegments[roadSegments.length - 1].position.z - segmentLength);
+                    roadSegments.push(newSegment);
+                    scene.add(newSegment);
+
+                    // 生成障碍物和积分
+                    generateObjects(newSegment.position.z, segmentLength);
+                }
+            });
+
+            // 移动障碍物
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                obstacles[i].position.z += config.speed;
+                const riseStartZ = emergenceStartZ;
+                const riseEndZ = emergenceEndZ;
+                const progress = smoothstep01(Math.max(0, Math.min(1, (obstacles[i].position.z - riseStartZ) / (riseEndZ - riseStartZ))));
+                obstacles[i].position.y = obstacles[i].userData.hiddenY +
+                    (obstacles[i].userData.finalY - obstacles[i].userData.hiddenY) * progress;
+
+                const obstacle = obstacles[i];
+                if (shouldUpdateVisualFx && obstacle.userData.type === 'candle' && obstacle.userData.flameOuter && obstacle.userData.flameInner) {
+                    const flameWave = Math.sin(nowSec * 7 + obstacle.userData.flamePhase);
+                    obstacle.userData.flameOuter.position.y = 0.84 + flameWave * 0.05;
+                    obstacle.userData.flameOuter.scale.set(1 - flameWave * 0.08, 1 + Math.abs(flameWave) * 0.15, 1 - flameWave * 0.08);
+                    obstacle.userData.flameInner.position.y = 0.82 + flameWave * 0.04;
+                    obstacle.userData.flameInner.scale.set(1 - flameWave * 0.1, 1 + Math.abs(flameWave) * 0.2, 1 - flameWave * 0.1);
+                }
+
+                if (shouldUpdateVisualFx && obstacle.userData.type === 'vortex' && obstacle.userData.vortexTexture) {
+                    const phase = obstacle.userData.vortexPhase || 0;
+                    const spin = 0.036;
+                    obstacle.rotation.z += spin;
+                    obstacle.userData.vortexTexture.rotation += spin * 1.55;
+                    const breathe = 0.85 + 0.15 * Math.sin(nowSec * 6.6 + phase);
+                    obstacle.userData.vortexTexture.offset.x = 0;
+                    obstacle.userData.vortexTexture.offset.y = 0;
+                    const vf = obstacle.userData.vortexFront;
+                    const vb = obstacle.userData.vortexBack;
+                    if (vf && vf.material) {
+                        vf.material.emissiveIntensity = 1.05 + 0.35 * breathe;
+                    }
+                    if (vb && vb.material) {
+                        vb.material.emissiveIntensity = 0.95 + 0.28 * breathe;
+                    }
+                }
+
+                if (shouldUpdateVisualFx && obstacle.userData.type === 'donut' && obstacle.userData.ringTextureA && obstacle.userData.ringTextureB) {
+                    const phase = obstacle.userData.ringPhase || 0;
+                    const spin = 0.036;
+                    obstacle.rotation.z += spin * 0.45;
+
+                    obstacle.userData.ringTextureA.rotation += spin * 1.55;
+                    obstacle.userData.ringTextureA.offset.x = 0;
+                    obstacle.userData.ringTextureA.offset.y = 0;
+
+                    obstacle.userData.ringTextureB.rotation -= spin * 1.55;
+                    obstacle.userData.ringTextureB.offset.x = 0;
+                    obstacle.userData.ringTextureB.offset.y = 0;
+
+                    const breathe = 0.85 + 0.15 * Math.sin(nowSec * 6.6 + phase);
+                    const rfA = obstacle.userData.ringFrontA;
+                    const rbA = obstacle.userData.ringBackA;
+                    const rfB = obstacle.userData.ringFrontB;
+                    const rbB = obstacle.userData.ringBackB;
+                    if (rfA && rfA.material) {
+                        rfA.material.emissiveIntensity = 1.05 + 0.35 * breathe;
+                    }
+                    if (rbA && rbA.material) {
+                        rbA.material.emissiveIntensity = 0.95 + 0.28 * breathe;
+                    }
+                    if (rfB && rfB.material) {
+                        rfB.material.emissiveIntensity = 0.9 + 0.3 * (1 - breathe * 0.75);
+                    }
+                    if (rbB && rbB.material) {
+                        rbB.material.emissiveIntensity = 0.82 + 0.24 * (1 - breathe * 0.75);
+                    }
+                }
+
+                if (shouldUpdateVisualFx && obstacle.userData.type === 'faceBlock' && obstacle.userData.blinkFace) {
+                    if (!isMobile || nowMs >= (obstacle.userData.nextFaceRefreshAt || 0)) {
+                        drawBlinkFace(obstacle.userData.blinkFace, nowMs);
+                        if (isMobile) {
+                            obstacle.userData.nextFaceRefreshAt = nowMs + mobileFaceRefreshIntervalMs;
+                        }
+                    }
+                }
+
+                if (obstacles[i].position.z > 10) {
+                    scene.remove(obstacles[i]);
+                    obstacles.splice(i, 1);
+                }
+            }
+
+            // 移动积分
+            for (let i = collectibles.length - 1; i >= 0; i--) {
+                collectibles[i].position.z += config.speed;
+                const fadeStartZ = collectibles[i].userData.fadeStartZ ?? emergenceStartZ;
+                const fadeEndZ = collectibles[i].userData.fadeEndZ ?? emergenceEndZ;
+                const zProgress = getEmergenceProgress(collectibles[i].position.z);
+                const localProgress = Math.max(0, Math.min(1, (collectibles[i].position.z - fadeStartZ) / (fadeEndZ - fadeStartZ)));
+                const appearProgress = smoothstep01(Math.min(zProgress, localProgress));
+                const hiddenY = collectibles[i].userData.hiddenY ?? -1.8;
+                const finalY = collectibles[i].userData.finalY ?? 1;
+                collectibles[i].position.y = hiddenY + (finalY - hiddenY) * appearProgress;
+                collectibles[i].rotation.y += 0.015;
+                if (shouldUpdateVisualFx) {
+                    const pulse = 0.92 + Math.sin(nowMs * 0.006 + i) * 0.1;
+                    const baseScale = collectibles[i].userData.baseScale ?? 1.2;
+                    const fadeScale = 0.55 + appearProgress * 0.45;
+                    collectibles[i].scale.set(pulse * baseScale * fadeScale, pulse * baseScale * fadeScale, pulse * baseScale * fadeScale);
+                    const sparkles = collectibles[i].userData.sparkles || [];
+                    sparkles.forEach((sparkle, idx) => {
+                        const angle = nowSec * sparkle.userData.speed + sparkle.userData.phase;
+                        sparkle.position.x = Math.cos(angle) * sparkle.userData.radius;
+                        sparkle.position.y = Math.sin(angle * 1.2) * 0.05 + sparkle.userData.heightOffset;
+                        sparkle.position.z = Math.sin(angle) * sparkle.userData.radius * 0.15;
+                        const twinkle = 0.26 + (0.18 * Math.sin(nowSec * 5 + idx));
+                        const sparkleProgress = Math.max(0, (appearProgress - 0.2) / 0.6);
+                        sparkle.material.opacity = twinkle * sparkleProgress;
+                        const sizePulse = 0.95 + 0.15 * Math.sin(nowSec * 3.4 + idx);
+                        sparkle.scale.setScalar(sparkle.userData.size * sizePulse);
+                    });
+
+                    const opacityNodes = collectibles[i].userData.opacityNodes || [];
+                    opacityNodes.forEach((node) => {
+                        if (!(collectibles[i].userData.sparkles || []).includes(node)) {
+                            node.material.opacity = appearProgress * 0.98;
+                        }
+                    });
+                    // 更新悬浮概率标签位置（若存在）
+                    try {
+                        const labelEl = collectibles[i].userData.probLabelEl;
+                        if (labelEl && camera) {
+                            const pos = collectibles[i].position.clone();
+                            pos.project(camera);
+                            const x = (pos.x * 0.5 + 0.5) * window.innerWidth;
+                            const y = (-pos.y * 0.5 + 0.5) * window.innerHeight;
+                            const bobOffset = Math.sin(collectibles[i].rotation.y * 3.2 + nowSec * 2.2) * 2;
+                            labelEl.style.left = `${x}px`;
+                            labelEl.style.top = `${y - 38 + bobOffset}px`;
+                            labelEl.style.transform = 'translate(-50%,-50%)';
+                            labelEl.style.opacity = Math.max(0, Math.min(1, appearProgress)).toString();
+                        }
+                    } catch (e) {}
+                }
+                if (collectibles[i].position.z > 10) {
+                    if (!collectibles[i].userData.collected) {
+                        currentLevelCollectibleMissed++;
+                    }
+                    // 移除悬浮标签
+                    try {
+                        const labelEl = collectibles[i].userData.probLabelEl;
+                        if (labelEl && labelEl.parentNode) labelEl.parentNode.removeChild(labelEl);
+                    } catch (e) {}
+                    scene.remove(collectibles[i]);
+                    collectibles.splice(i, 1);
+                }
+            }
+
+            for (let i = collectibleBursts.length - 1; i >= 0; i--) {
+                const burst = collectibleBursts[i];
+                burst.position.z += config.speed;
+                burst.userData.life -= 0.03;
+                burst.children.forEach(ray => {
+                    ray.position.x += ray.userData.vx;
+                    ray.position.y += ray.userData.vy;
+                    ray.userData.life -= 0.03;
+                    ray.material.opacity = Math.max(0, ray.userData.life);
+                    ray.scale.y *= 0.97;
+                });
+                if (burst.userData.life <= 0 || burst.position.z > 12) {
+                    scene.remove(burst);
+                    collectibleBursts.splice(i, 1);
+                }
+            }
+        }
+
+        // 碰撞检测
+        function checkCollisions() {
+            if (game.gameOver) return;
+            const nowMs = performance.now();
+            const invincibleByRevive = nowMs < reviveInvincibleUntilMs;
+            const invincibleBySprint = sprintDistanceRemaining > 0;
+            const ignoreObstacleDamage = invincibleByRevive || invincibleBySprint;
+
+            // 小球的边界球半径
+            const ballRadius = ball.userData.radius || 0.5;
+            const ballPosition = ball.position;
+            const previousBallSample = lastCollisionBallPos
+                ? { ...lastCollisionBallPos }
+                : { x: ballPosition.x, y: ballPosition.y, z: ballPosition.z };
+            const currentBallSample = { x: ballPosition.x, y: ballPosition.y, z: ballPosition.z };
+            const torusSamples = [currentBallSample];
+            const sampleDeltaSq =
+                Math.pow(currentBallSample.x - previousBallSample.x, 2) +
+                Math.pow(currentBallSample.y - previousBallSample.y, 2) +
+                Math.pow(currentBallSample.z - previousBallSample.z, 2);
+
+            if (sampleDeltaSq > 1e-6) {
+                torusSamples.push({
+                    x: (currentBallSample.x + previousBallSample.x) * 0.5,
+                    y: (currentBallSample.y + previousBallSample.y) * 0.5,
+                    z: (currentBallSample.z + previousBallSample.z) * 0.5
+                });
+                torusSamples.push(previousBallSample);
+            }
+            lastCollisionBallPos = currentBallSample;
+
+            // 检测障碍物碰撞 - 严格判定，碰到即算
+            let collisionDetected = false;
+            if (!ignoreObstacleDamage) {
+                obstacles.forEach(obstacle => {
+                const scale = obstacle.scale;
+                const position = obstacle.position;
+                const collider = obstacle.userData.collider || { type: 'box', halfX: 0.5, halfY: 0.5, halfZ: 0.5 };
+
+                if (collider.type === 'box') {
+                    const halfWidth = collider.halfX * scale.x;
+                    const halfHeight = collider.halfY * scale.y;
+                    const halfDepth = collider.halfZ * scale.z;
+
+                    const minX = position.x - halfWidth;
+                    const maxX = position.x + halfWidth;
+                    const minY = position.y - halfHeight;
+                    const maxY = position.y + halfHeight;
+                    const minZ = position.z - halfDepth;
+                    const maxZ = position.z + halfDepth;
+
+                    const closestX = Math.max(minX, Math.min(ballPosition.x, maxX));
+                    const closestY = Math.max(minY, Math.min(ballPosition.y, maxY));
+                    const closestZ = Math.max(minZ, Math.min(ballPosition.z, maxZ));
+
+                    const distance = Math.sqrt(
+                        Math.pow(ballPosition.x - closestX, 2) +
+                        Math.pow(ballPosition.y - closestY, 2) +
+                        Math.pow(ballPosition.z - closestZ, 2)
+                    );
+
+                    if (distance < ballRadius) {
+                        collisionDetected = true;
+                    }
+                } else if (collider.type === 'disk') {
+                    // 漩涡是朝向镜头的圆盘（XY平面），按半径+薄厚度进行判定
+                    const radius = collider.radius * Math.max(scale.x, scale.y);
+                    const depthHalf = (collider.depthHalf ?? 0.1) * Math.max(1e-6, Math.abs(scale.z));
+                    const edgeForgiveness = Math.min(collider.edgeForgiveness ?? 0.04, radius * 0.18);
+                    const effectiveRadius = Math.max(0.01, radius - edgeForgiveness);
+                    const sphereForgiveness = collider.sphereForgiveness ?? 0.06;
+                    const collideRadius = Math.max(0.01, ballRadius - sphereForgiveness);
+                    const collideRadiusSq = collideRadius * collideRadius;
+
+                    const checkDiskCollisionAt = (sample) => {
+                        const dx = sample.x - position.x;
+                        const dy = sample.y - position.y;
+                        const radialDistance = Math.hypot(dx, dy);
+                        const dz = Math.abs(sample.z - position.z);
+
+                        const radialGap = Math.max(0, radialDistance - effectiveRadius);
+                        const depthGap = Math.max(0, dz - depthHalf);
+                        const surfaceDistanceSq = radialGap * radialGap + depthGap * depthGap;
+                        return surfaceDistanceSq <= collideRadiusSq;
+                    };
+
+                    if (torusSamples.some(checkDiskCollisionAt)) {
+                        collisionDetected = true;
+                    }
+                } else if (collider.type === 'cylinder') {
+                    const radius = collider.radius * Math.max(scale.x, scale.z);
+                    const halfHeight = collider.halfHeight * scale.y;
+
+                    // 计算水平距离
+                    const dx = ballPosition.x - position.x;
+                    const dz = ballPosition.z - position.z;
+                    const horizontalDistance = Math.sqrt(dx * dx + dz * dz);
+
+                    // 计算垂直距离
+                    const dy = Math.abs(ballPosition.y - position.y);
+
+                    // 更精确的碰撞检测：球与圆柱表面的距离
+                    let surfaceDistance;
+                    if (horizontalDistance < radius) {
+                        // 球在圆柱正上方或正下方
+                        surfaceDistance = Math.abs(dy) - halfHeight;
+                    } else {
+                        // 球在圆柱侧面
+                        surfaceDistance = Math.sqrt(
+                            Math.pow(horizontalDistance - radius, 2) +
+                            Math.pow(Math.max(0, dy - halfHeight), 2)
+                        );
+                    }
+
+                    // 碰撞判定：小球表面接触到圆柱表面
+                    if (surfaceDistance < ballRadius) {
+                        collisionDetected = true;
+                    }
+                } else if (collider.type === 'torus') {
+                    // 与可视几何对齐：将donut判定为“环形薄片(annulus) + 有限厚度”
+                    // 这样在看到环边缘接触时更容易同步触发碰撞，减少幽灵碰撞/漏判
+                    const radialScale = Math.max(1e-6, (Math.abs(scale.x) + Math.abs(scale.y)) * 0.5);
+                    const depthScale = Math.max(1e-6, Math.abs(scale.z));
+
+                    const rawInnerRadius = (collider.innerRadius ?? (collider.ringRadius - collider.tubeRadius)) * radialScale;
+                    const outerRadius = (collider.outerRadius ?? (collider.ringRadius + collider.tubeRadius)) * radialScale;
+                    const depthHalf = (collider.depthHalf ?? collider.tubeRadius) * depthScale;
+                    // 收紧容错：减少“肉眼已碰到边缘却仍判通过”
+                    const innerBoundaryForgiveness = Math.min(0.15, rawInnerRadius * 0.15);
+                    const innerRadius = Math.min(outerRadius - 0.02, rawInnerRadius + innerBoundaryForgiveness);
+                    // Z向边界保留轻微缓冲，降低前后面误触
+                    const frontBackForgiveness = Math.min(0.18, depthHalf * 0.65);
+                    const effectiveDepthHalf = Math.max(0.02, depthHalf - frontBackForgiveness);
+                    const torusForgiveness = 0.20;
+                    const torusCollideRadius = Math.max(0.01, ballRadius - torusForgiveness);
+                    const collideRadiusSq = torusCollideRadius * torusCollideRadius;
+
+                    const checkTorusCollisionAt = (sample) => {
+                        const dx = sample.x - position.x;
+                        const dy = sample.y - position.y;
+                        const radialDistance = Math.hypot(dx, dy);
+                        const dz = Math.abs(sample.z - position.z);
+
+                        let radialGap = 0;
+                        if (radialDistance < innerRadius) {
+                            const innerPassSlack = Math.min(0.15, innerRadius * 0.15);
+                            radialGap = Math.max(0, innerRadius - radialDistance - innerPassSlack);
+                        } else if (radialDistance > outerRadius) {
+  const outerPassSlack = Math.min(0.18, outerRadius * 0.12);
+  radialGap = Math.max(0, radialDistance - outerRadius - outerPassSlack);
+                        }
+
+                        const depthGap = Math.max(0, dz - effectiveDepthHalf);
+                        const surfaceDistanceSq = radialGap * radialGap + depthGap * depthGap;
+                        return surfaceDistanceSq <= collideRadiusSq;
+                    };
+
+                    if (torusSamples.some(checkTorusCollisionAt)) {
+                        collisionDetected = true;
+                    }
+                } else {
+                    const halfWidth = 0.5 * scale.x;
+                    const halfHeight = 0.5 * scale.y;
+                    const halfDepth = 0.5 * scale.z;
+
+                    const minX = position.x - halfWidth;
+                    const maxX = position.x + halfWidth;
+                    const minY = position.y - halfHeight;
+                    const maxY = position.y + halfHeight;
+                    const minZ = position.z - halfDepth;
+                    const maxZ = position.z + halfDepth;
+
+                    const closestX = Math.max(minX, Math.min(ballPosition.x, maxX));
+                    const closestY = Math.max(minY, Math.min(ballPosition.y, maxY));
+                    const closestZ = Math.max(minZ, Math.min(ballPosition.z, maxZ));
+
+                    const distance = Math.sqrt(
+                        Math.pow(ballPosition.x - closestX, 2) +
+                        Math.pow(ballPosition.y - closestY, 2) +
+                        Math.pow(ballPosition.z - closestZ, 2)
+                    );
+
+                    if (distance < ballRadius) {
+                        collisionDetected = true;
+                    }
+                }
+                });
+            }
+
+            if (collisionDetected) {
+                endGame();
+            }
+
+            // 检测积分收集 - 严格判定，碰到即算
+            for (let i = collectibles.length - 1; i >= 0; i--) {
+                const collectible = collectibles[i];
+                const scale = collectible.scale;
+                const position = collectible.position;
+
+                // 积分是球体，计算球体边界
+                const collectibleRadius = (collectible.userData.collectibleRadius || 0.3) * scale.x;
+
+                // 计算两个球体中心距离
+                const distance = ballPosition.distanceTo(position);
+
+                // 严格判定：小球半径 + 积分球半径 = 碰撞
+                // 只要两个球体表面接触即算收集
+                if (distance < ballRadius + collectibleRadius) {
+                    const collectibleType = collectible.userData.collectibleType || 'normal';
+                    const scoreValue = Number.isFinite(collectible.userData.scoreValue)
+                        ? collectible.userData.scoreValue
+                        : 10;
+
+                    game.score += scoreValue;
+                    currentLevelCollectibleCollected++;
+                    collectible.userData.collected = true;
+                    document.getElementById('score').textContent = `分数: ${game.score}`;
+                    spawnCollectibleBurst(collectible.position, collectibleType);
+
+                    if (collectibleType === 'blue') {
+                        activateOrRefreshSprint();
+                    }
+
+                    // 若为红色积分，判定死亡概率
+                    if (collectibleType === 'red') {
+                        const deathProb = collectible.userData.deathProbability || 0;
+                        if (Math.random() < deathProb) {
+                            // 保留已收集分数，触发死亡流程（可复活）
+                            reviveRespawnState = {
+                                ballPosition: ball ? ball.position.clone() : null,
+                                verticalVelocity,
+                                isGrounded,
+                                lastBallX,
+                                lastCollisionBallPos: lastCollisionBallPos ? { ...lastCollisionBallPos } : null
+                            };
+                            try {
+                                const labelEl = collectible.userData.probLabelEl;
+                                if (labelEl && labelEl.parentNode) labelEl.parentNode.removeChild(labelEl);
+                            } catch (e) {}
+                            // 移除物体后触发结束逻辑，这会展示复活选项（若有）
+                            scene.remove(collectible);
+                            collectibles.splice(i, 1);
+                            checkLevelUp();
+                            endGame();
+                            return; // 退出当前检测循环分支
+                        }
+                    }
+
+                    // 移除悬浮标签（若存在）
+                    try {
+                        const labelEl = collectible.userData.probLabelEl;
+                        if (labelEl && labelEl.parentNode) labelEl.parentNode.removeChild(labelEl);
+                    } catch (e) {}
+                    scene.remove(collectible);
+                    collectibles.splice(i, 1);
+
+                    // 检查升级
+                    checkLevelUp();
+                }
+            }
+        }
+
+        // 检查升级
+        function checkLevelUp() {
+            // 第十关是无限模式，不检查积分
+            if (game.level === levels.length) {
+                return;
+            }
+
+            // 确保游戏未结束且分数达到目标
+            if (game.score >= levels[game.level - 1].score && !game.gameOver) {
+                console.log('Level complete:', game.level, 'Score:', game.score, 'Target:', levels[game.level - 1].score);
+
+                const levelBonusTipEl = document.getElementById('level-bonus-tip');
+                const nearUncollectedCount = collectibles.filter(c => !c.userData.collected && c.position.z > -22).length;
+                const isGrandSlam = currentLevelCollectibleCollected > 0 &&
+                    currentLevelCollectibleMissed === 0 &&
+                    nearUncollectedCount === 0;
+                if (isGrandSlam && !perfectLevelsAchieved.has(game.level)) {
+                    reviveChances++;
+                    perfectLevelsAchieved.add(game.level);
+                    if (levelBonusTipEl) {
+                        levelBonusTipEl.innerHTML = '恭喜获得本关大满贯<br>获得复活机会一次';
+                        levelBonusTipEl.style.display = 'block';
+                    }
+                } else if (levelBonusTipEl) {
+                    levelBonusTipEl.style.display = 'none';
+                    levelBonusTipEl.textContent = '';
+                }
+
+                // 暂停游戏
+                game.gameStarted = false;
+
+                // 保存游戏状态（关卡完成）
+                saveGameState();
+
+                // 强制显示关卡完成提示
+                const levelCompleteEl = document.getElementById('level-complete');
+                const gameOverEl = document.getElementById('game-over');
+
+                if (levelCompleteEl) {
+                    levelCompleteEl.style.display = 'block';
+                    levelCompleteEl.style.zIndex = '9999';
+                }
+
+                if (gameOverEl) {
+                    gameOverEl.style.display = 'none';
+                }
+
+                // 更新提示内容
+                const completedLevelEl = document.getElementById('completed-level');
+                const completedScoreEl = document.getElementById('completed-score');
+                const completedTargetEl = document.getElementById('completed-target');
+
+                if (completedLevelEl) completedLevelEl.textContent = game.level;
+                if (completedScoreEl) completedScoreEl.textContent = game.score;
+                if (completedTargetEl) completedTargetEl.textContent = levels[game.level - 1].score;
+
+                // 如果是最后一关，修改提示文字
+                const h2El = document.querySelector('#level-complete h2');
+                if (h2El) {
+                    if (game.level >= levels.length - 1) { // 第九关完成，进入第十关
+                        h2El.textContent = '恭喜通关第九关！';
+                    } else {
+                        h2El.textContent = `关卡 ${game.level} 完成！`;
+                    }
+                }
+
+                // 控制按钮显示
+                const buttonEl = document.querySelector('#level-complete button');
+                if (buttonEl) {
+                    if (game.level >= levels.length - 1) { // 第九关完成，进入第十关
+                        buttonEl.textContent = '进入无限模式';
+                        buttonEl.style.display = 'inline-block';
+                    } else {
+                        buttonEl.textContent = '进入下一关';
+                        buttonEl.style.display = 'inline-block';
+                    }
+                }
+
+                updateMobileControlsVisibility();
+            }
+        }
+
+        // 开始游戏
+        function startGame() {
+            document.getElementById('start-screen').style.display = 'none';
+            game.gameStarted = true;
+            updateMobileControlsVisibility();
+        }
+
+        // 进入下一关
+        function nextLevel() {
+            document.getElementById('level-complete').style.display = 'none';
+            const levelBonusTipEl = document.getElementById('level-bonus-tip');
+            if (levelBonusTipEl) {
+                levelBonusTipEl.style.display = 'none';
+                levelBonusTipEl.textContent = '';
+            }
+            clearSprintState();
+            carryOverLevelScore();
+            if (game.level > levels.length) game.level = levels.length;
+            // 保存游戏状态
+            saveGameState();
+            updateMobileControlsVisibility();
+            initGameWithLoading({ text: '正在准备下一关...', autoStart: true });
+        }
+
+        // 游戏结束
+        function endGame() {
+            if (!game.gameOver && reviveChances > 0) {
+                const reviveModalEl = document.getElementById('revive-modal');
+                const reviveRemainingEl = document.getElementById('revive-remaining');
+                const remainAfterRevive = Math.max(0, reviveChances - 1);
+                if (reviveRemainingEl) {
+                    reviveRemainingEl.textContent = `${remainAfterRevive}`;
+                }
+                if (reviveModalEl) {
+                    reviveModalEl.style.display = 'block';
+                }
+
+                // 不点击继续时等效暂停；保留当前关卡与分数
+                game.paused = true;
+                game.gameStarted = false;
+                saveGameState();
+                updateMobileControlsVisibility();
+                return;
+            }
+
+            game.gameOver = true;
+            document.getElementById('final-score').textContent = game.score;
+            document.getElementById('final-level').textContent = game.level;
+
+            // 为第十关添加祝贺词
+            const gameOverEl = document.getElementById('game-over');
+            const h2El = gameOverEl.querySelector('h2');
+            const reviveModalEl = document.getElementById('revive-modal');
+            if (reviveModalEl) {
+                reviveModalEl.style.display = 'none';
+            }
+
+            if (game.level === levels.length && hasPerfectGrandSlamFirstNine()) {
+                h2El.textContent = '恭喜获得mvp大满贯！！！';
+            } else if (game.level === levels.length) {
+                h2El.textContent = '恭喜完成挑战！';
+            } else {
+                h2El.textContent = '游戏结束';
+            }
+
+            gameOverEl.style.display = 'block';
+            // 游戏结束时不保存游戏状态，这样重新进入时会重新开始
+            localStorage.removeItem('gameState');
+            console.log('Game over, local storage cleared');
+            updateMobileControlsVisibility();
+        }
+
+        // 重新开始
+        function restartGame() {
+            document.getElementById('game-over').style.display = 'none';
+            document.getElementById('level-complete').style.display = 'none';
+            document.getElementById('pause-menu').style.display = 'none';
+            document.getElementById('revive-modal').style.display = 'none';
+            game.level = 1;
+            game.score = 0;
+            game.gameStarted = false;
+            game.gameOver = false;
+            game.distance = 0;
+            game.paused = false;
+            reviveChances = 0;
+            currentLevelCollectibleSpawned = 0;
+            currentLevelCollectibleCollected = 0;
+            currentLevelCollectibleMissed = 0;
+            reviveInvincibleUntilMs = 0;
+            reviveRespawnState = null;
+            clearSprintState();
+            perfectLevelsAchieved.clear();
+            clearCollectibleProbabilityLabels();
+            // 清除保存的游戏状态
+            localStorage.removeItem('gameState');
+            console.log('Game restarted, local storage cleared');
+            updateMobileControlsVisibility();
+            initGameWithLoading({ text: '正在重建赛道...' });
+        }
+
+        // 重开当前关卡（保留复活次数与大满贯进度）
+        function restartCurrentLevel() {
+            document.getElementById('game-over').style.display = 'none';
+            document.getElementById('level-complete').style.display = 'none';
+            document.getElementById('pause-menu').style.display = 'none';
+            document.getElementById('revive-modal').style.display = 'none';
+
+            game.score = 0;
+            game.gameStarted = false;
+            game.gameOver = false;
+            game.distance = 0;
+            game.paused = false;
+            currentLevelCollectibleSpawned = 0;
+            currentLevelCollectibleCollected = 0;
+            currentLevelCollectibleMissed = 0;
+            reviveInvincibleUntilMs = 0;
+            reviveRespawnState = null;
+            clearSprintState();
+            clearCollectibleProbabilityLabels();
+
+            saveGameState();
+            updateMobileControlsVisibility();
+            initGameWithLoading({ text: '正在重新开始本关...', autoStart: true });
+        }
+
+        function continueAfterRevive() {
+            if (reviveChances <= 0) return;
+
+            reviveChances--;
+            game.gameOver = false;
+            game.paused = false;
+            game.gameStarted = true;
+            if (reviveRespawnState && ball) {
+                if (reviveRespawnState.ballPosition) {
+                    ball.position.copy(reviveRespawnState.ballPosition);
+                }
+                verticalVelocity = reviveRespawnState.verticalVelocity ?? 0;
+                isGrounded = reviveRespawnState.isGrounded ?? true;
+                lastBallX = Number.isFinite(reviveRespawnState.lastBallX) ? reviveRespawnState.lastBallX : ball.position.x;
+                lastCollisionBallPos = reviveRespawnState.lastCollisionBallPos
+                    ? { ...reviveRespawnState.lastCollisionBallPos }
+                    : null;
+                reviveRespawnState = null;
+            }
+            reviveInvincibleUntilMs = performance.now() + 1300;
+
+            const reviveModalEl = document.getElementById('revive-modal');
+            if (reviveModalEl) {
+                reviveModalEl.style.display = 'none';
+            }
+            saveGameState();
+            updateMobileControlsVisibility();
+        }
+
+        // 加载游戏状态
+        function loadGameState() {
+            try {
+                const savedState = localStorage.getItem('gameState');
+                if (savedState) {
+                    const state = JSON.parse(savedState);
+                    // 只加载关卡和分数，不加载其他状态
+                    game.level = state.level || 1;
+                    game.score = state.score || 0;
+                    reviveChances = Number.isFinite(state.reviveChances) ? Math.max(0, Math.floor(state.reviveChances)) : 0;
+
+                    perfectLevelsAchieved.clear();
+                    if (Array.isArray(state.perfectLevelsAchieved)) {
+                        state.perfectLevelsAchieved.forEach((value) => {
+                            const level = Number(value);
+                            if (Number.isInteger(level) && level > 0) {
+                                perfectLevelsAchieved.add(level);
+                            }
+                        });
+                    }
+
+                    // 重置其他状态
+                    game.gameStarted = false;
+                    game.gameOver = false;
+                    game.distance = 0;
+                    game.paused = false;
+
+                    // 如果存档停在关卡完成状态，则自动把超出目标的分数结转到下一关
+                    while (game.level < levels.length && game.score >= levels[game.level - 1].score) {
+                        console.log('Auto advancing to next level:', game.level + 1);
+                        carryOverLevelScore();
+                    }
+                    if (savedState) {
+                        // 保存更新后的游戏状态
+                        saveGameState();
+                    }
+
+                    console.log('Successfully loaded game state:', { level: game.level, score: game.score });
+                } else {
+                    reviveChances = 0;
+                    perfectLevelsAchieved.clear();
+                    console.log('No saved game state found');
+                }
+            } catch (error) {
+                console.error('Failed to load game state:', error);
+                // 如果加载失败，重置为默认状态
+                game.level = 1;
+                game.score = 0;
+                game.gameStarted = false;
+                game.gameOver = false;
+                game.distance = 0;
+                game.paused = false;
+                reviveChances = 0;
+                perfectLevelsAchieved.clear();
+            }
+        }
+
+        // 保存游戏状态
+        function saveGameState() {
+            const state = {
+                level: game.level,
+                score: game.score,
+                reviveChances,
+                perfectLevelsAchieved: Array.from(perfectLevelsAchieved),
+                gameStarted: game.gameStarted,
+                gameOver: game.gameOver,
+                paused: game.paused
+            };
+            localStorage.setItem('gameState', JSON.stringify(state));
+            console.log('Game state saved:', state);
+        }
+
+        function isPanelVisible(id) {
+            const el = document.getElementById(id);
+            if (!el) return false;
+            return getComputedStyle(el).display !== 'none';
+        }
+
+        function handleSpaceAction() {
+            if (isPanelVisible('start-screen')) {
+                startGame();
+                return true;
+            }
+
+            if (isPanelVisible('revive-modal')) {
+                continueAfterRevive();
+                return true;
+            }
+
+            if (isPanelVisible('level-complete')) {
+                nextLevel();
+                return true;
+            }
+
+            if (isPanelVisible('game-over')) {
+                restartGame();
+                return true;
+            }
+
+            if (isPanelVisible('pause-menu')) {
+                resumeGame();
+                return true;
+            }
+
+            if (game.gameStarted && !game.gameOver) {
+                togglePause();
+                return true;
+            }
+
+            return false;
+        }
+
+        // 暂停/继续游戏
+        function togglePause() {
+            if (game.gameOver || !game.gameStarted) {
+                return;
+            }
+
+            game.paused = !game.paused;
+            const pauseMenu = document.getElementById('pause-menu');
+
+            if (game.paused) {
+                pauseMenu.style.display = 'block';
+                // 暂停时保存游戏状态（包括积分）
+                saveGameState();
+            } else {
+                pauseMenu.style.display = 'none';
+            }
+            updateMobileControlsVisibility();
+        }
+
+        // 继续游戏
+        function resumeGame() {
+            game.paused = false;
+            document.getElementById('pause-menu').style.display = 'none';
+            updateMobileControlsVisibility();
+        }
+
+        function updateMobileControlsVisibility() {
+            if (!isMobile) {
+                document.body.classList.remove('mobile-controls-active');
+                return;
+            }
+
+            const isVisible = (id) => {
+                const el = document.getElementById(id);
+                if (!el) return false;
+                return getComputedStyle(el).display !== 'none';
+            };
+
+            const panelBlocking =
+                isVisible('start-screen') ||
+                isVisible('game-over') ||
+                isVisible('level-complete') ||
+                isVisible('pause-menu') ||
+                isVisible('revive-modal');
+
+            const shouldShow = game.gameStarted && !game.gameOver && !game.paused && !panelBlocking;
+            document.body.classList.toggle('mobile-controls-active', shouldShow);
+        }
+
+        // 更新UI
+        function updateUI() {
+            document.getElementById('score').textContent = `分数: ${game.score}`;
+            if (game.level === levels.length) {
+                document.getElementById('level').textContent = `关卡: ${game.level} (无限模式)`;
+            } else {
+                document.getElementById('level').textContent = `关卡: ${game.level} / 目标: ${levels[game.level - 1].score}`;
+            }
+            document.getElementById('debug').textContent = `速度: ${config.speed} | 关卡: ${game.level}`;
+        }
+
+        // 动画循环
+        function animate(currentTime) {
+            animationId = requestAnimationFrame(animate);
+
+            // 计算时间差，确保不同设备上速度一致
+            if (!lastTime) lastTime = currentTime;
+            const deltaTime = (currentTime - lastTime) / 1000;
+            lastTime = currentTime;
+
+            // 限制时间差，防止大延迟导致的跳跃
+            const dt = Math.min(deltaTime, 0.1);
+
+            if (game.gameStarted && !game.gameOver && !game.paused && ball) {
+                // 保存原始速度
+                const originalSpeed = config.speed;
+                const originalMoveSpeed = config.moveSpeed;
+                sprintSpeedMultiplier = getSprintMultiplier();
+
+                // 使用固定时间步长更新
+                const fixedSpeed = originalSpeed * sprintSpeedMultiplier * (dt / config.fixedTimeStep);
+                const fixedMoveSpeed = originalMoveSpeed * (1 + (sprintSpeedMultiplier - 1) * sprintMoveSpeedMultiplier / sprintBoostMultiplier) * (dt / config.fixedTimeStep);
+
+                // 使用固定速度更新
+                config.speed = fixedSpeed;
+                config.moveSpeed = fixedMoveSpeed;
+                mobileVisualFrameCounter++;
+
+                const stepScale = dt / config.fixedTimeStep;
+                handleMovement(stepScale);
+                updateRoad();
+                checkCollisions();
+                updateBallRollAndTrail(dt, currentTime * 0.001);
+
+                // 恢复原始速度
+                config.speed = originalSpeed;
+                config.moveSpeed = originalMoveSpeed;
+
+                // 更新相机
+                // 移动端固定X轴视角，避免左右操作时道路出现晃动感
+                const camTargetX = 0;
+                const baseCamTargetY = isMobile ? 6.4 : 5;
+                const baseCamLookAtY = isMobile ? 0.85 : 0.5;
+                const camZOffset = isMobile ? 11.8 : 10;
+
+                // 跳跃镜头上移：根据离地高度做平滑抬升，增强腾空视觉
+                const jumpHeight = Math.max(0, ball.position.y - config.groundY);
+                const jumpLift = Math.min(1.5, jumpHeight);
+                const camTargetY = baseCamTargetY + jumpLift * 0.62;
+                const camLookAtY = baseCamLookAtY + jumpLift * 0.42;
+
+                camera.position.x += (camTargetX - camera.position.x) * 0.12;
+                camera.position.y += (camTargetY - camera.position.y) * 0.12;
+                camera.position.z = ball.position.z + camZOffset;
+                camera.lookAt(camTargetX, camLookAtY, ball.position.z + 5.3);
+            }
+
+            if (renderer && scene && camera) {
+                renderer.render(scene, camera);
+            }
+        }
+
+        function tryJump() {
+            if (!game.gameStarted || game.gameOver || game.paused || !isGrounded) {
+                return false;
+            }
+
+            verticalVelocity = config.jumpVelocity;
+            isGrounded = false;
+            return true;
+        }
+
+        // 事件监听
+        window.addEventListener('keydown', (e) => {
+            keys[e.key.toLowerCase()] = true;
+            keys[e.code.toLowerCase()] = true;
+
+            // 按空格键根据当前界面执行对应操作
+            if (e.code === 'Space') {
+                e.preventDefault(); // 防止空格键默认行为
+                if (e.repeat) {
+                    return;
+                }
+                handleSpaceAction();
+                return;
+            }
+
+            // W/↑ 跳跃（只能单段跳）
+            if (e.code === 'KeyW' || e.code === 'ArrowUp') {
+                e.preventDefault();
+                tryJump();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            keys[e.key.toLowerCase()] = false;
+            keys[e.code.toLowerCase()] = false;
+        });
+
+        // 触摸事件监听
+        let touchStartX = 0;
+        let touchEndX = 0;
+        let touchLastX = 0;
+
+        // 根据设备类型显示不同的游戏规则
+        if (isMobile) {
+            document.getElementById('rules-desktop').style.display = 'none';
+            document.getElementById('rules-mobile').style.display = 'block';
+
+            // 在移动端添加点击暂停功能
+            document.addEventListener('click', (e) => {
+                // 检查点击的是否是按钮元素，如果是则不触发暂停
+                if (e.target.tagName === 'BUTTON' || e.target.closest('.btn-primary') || e.target.closest('.btn-secondary')) {
+                    return;
+                }
+
+                // 检查点击位置是否在触摸控制区域外
+                const touchArea = document.getElementById('touch-area');
+                if (touchArea) {
+                    const touchAreaRect = touchArea.getBoundingClientRect();
+                    if (e.clientY < touchAreaRect.top) {
+                        // 点击在触摸控制区域上方，触发暂停
+                        togglePause();
+                    }
+                }
+            });
+        } else {
+            document.getElementById('rules-desktop').style.display = 'block';
+            document.getElementById('rules-mobile').style.display = 'none';
+        }
+
+        document.getElementById('touch-area').addEventListener('touchstart', (e) => {
+            touchStartX = e.touches[0].clientX;
+            touchLastX = touchStartX;
+        });
+
+        document.getElementById('touch-area').addEventListener('touchmove', (e) => {
+            e.preventDefault(); // 防止页面滚动
+            touchEndX = e.touches[0].clientX;
+
+            if (isMobile && game.gameStarted && !game.gameOver && !game.paused && ball) {
+                const deltaX = touchEndX - touchLastX;
+                touchLastX = touchEndX;
+                const movementScale = (config.roadWidth / window.innerWidth) * 1.15;
+                ball.position.x += deltaX * movementScale;
+
+                const roadHalfWidth = config.roadWidth / 2;
+                const minX = -roadHalfWidth + 0.5;
+                const maxX = roadHalfWidth - 0.5;
+                ball.position.x = Math.max(minX, Math.min(maxX, ball.position.x));
+            } else {
+                // 计算滑动距离
+                const deltaX = touchEndX - touchStartX;
+
+                // 根据滑动距离模拟按键
+                if (deltaX > 20) {
+                    // 向右滑动
+                    keys['d'] = true;
+                    keys['arrowright'] = true;
+                } else if (deltaX < -20) {
+                    // 向左滑动
+                    keys['a'] = true;
+                    keys['arrowleft'] = true;
+                }
+            }
+        });
+
+        document.getElementById('touch-area').addEventListener('touchend', (e) => {
+            // 重置按键状态
+            keys['a'] = false;
+            keys['d'] = false;
+            keys['arrowleft'] = false;
+            keys['arrowright'] = false;
+        });
+
+        const jumpButtonIds = ['jump-left', 'jump-right'];
+        jumpButtonIds.forEach((buttonId) => {
+            const button = document.getElementById(buttonId);
+            if (!button) return;
+
+            button.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                tryJump();
+            }, { passive: false });
+
+            button.addEventListener('click', (e) => {
+                e.preventDefault();
+                tryJump();
+            });
+        });
+
+        function updateViewportBottomGap() {
+            const vv = window.visualViewport;
+            let bottomGap = 0;
+
+            if (vv) {
+                bottomGap = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+            }
+
+            document.documentElement.style.setProperty('--viewport-bottom-gap', `${bottomGap}px`);
+        }
+
+        window.addEventListener('resize', () => {
+            updateViewportBottomGap();
+
+            const viewport = getViewportDimensions();
+            const currWidth = viewport.width;
+            const currHeight = viewport.height;
+            const widthDelta = Math.abs(currWidth - lastResizeWidth);
+            const heightDelta = Math.abs(currHeight - lastResizeHeight);
+            const orientationChanged = (currWidth > currHeight) !== (lastResizeWidth > lastResizeHeight);
+
+            // 地址栏伸缩导致的小幅变化只同步画布尺寸，不刷新像素比，减少卡顿与清晰度抖动
+            const smallViewportDrift = isMobile && !orientationChanged && widthDelta < 24 && heightDelta < 180;
+            scheduleViewportSync({ refreshPixelRatio: !smallViewportDrift });
+        });
+
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', () => {
+                updateViewportBottomGap();
+                scheduleViewportSync({ refreshPixelRatio: false });
+            });
+            window.visualViewport.addEventListener('scroll', updateViewportBottomGap);
+        }
+
+        updateViewportBottomGap();
+
+        // 启动游戏
+        initGameWithLoading();
+    </script>
+</body>
+
+</html>
+
+>>>>>>> 7f5948304a8f1924fe83fb030b701f21abf92255
 "<!-- 2026-04-29 update -->" 

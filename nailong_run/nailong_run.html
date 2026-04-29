@@ -1,0 +1,2605 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>奶龙跑酷</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #111;
+            font-family: Arial, sans-serif;
+        }
+
+        .ui {
+            position: absolute;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            z-index: 100;
+        }
+
+        #info {
+            top: 10px;
+            left: 10px;
+        }
+
+        #score {
+            top: 10px;
+            right: 10px;
+            background: rgba(10, 18, 35, 0.55);
+            border: 1px solid rgba(140, 230, 255, 0.5);
+            color: #e7fbff;
+            box-shadow: 0 0 14px rgba(80, 210, 255, 0.45);
+            text-shadow: 0 0 8px rgba(155, 241, 255, 0.9);
+            animation: scoreTwinkle 1.3s ease-in-out infinite;
+        }
+
+        #level {
+            top: 50px;
+            right: 10px;
+        }
+
+        #debug {
+            top: 90px;
+            right: 10px;
+        }
+
+        /* 触摸控制区域 */
+        #touch-area {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 150px;
+            background: rgba(255, 255, 255, 0.1);
+            z-index: 50;
+            display: none;
+        }
+
+        /* 响应式设计 */
+        @media screen and (max-width: 768px) {
+            .ui {
+                font-size: 12px;
+                padding: 8px;
+            }
+
+            #info {
+                top: 5px;
+                left: 5px;
+            }
+
+            #score {
+                top: 5px;
+                right: 5px;
+            }
+
+            #level {
+                top: 40px;
+                right: 5px;
+            }
+
+            #debug {
+                top: 75px;
+                right: 5px;
+            }
+
+            /* 显示触摸控制区域 */
+            #touch-area {
+                display: block;
+            }
+        }
+
+        /* 游戏结束和开始屏幕 */
+        #game-over,
+        #start-screen,
+        #level-complete,
+        #pause-menu {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 30px;
+            border-radius: 10px;
+            text-align: center;
+            z-index: 1000;
+            max-width: 90%;
+            width: 400px;
+        }
+
+        @media screen and (max-width: 480px) {
+
+            #game-over,
+            #start-screen,
+            #level-complete,
+            #pause-menu {
+                padding: 20px;
+                width: 90%;
+            }
+
+            h2 {
+                font-size: 20px;
+            }
+
+            p {
+                font-size: 14px;
+            }
+
+            button {
+                font-size: 14px;
+                padding: 8px 16px;
+            }
+        }
+
+        #game-over,
+        #start-screen,
+        #level-complete {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 30px;
+            border-radius: 10px;
+            text-align: center;
+            font-size: 18px;
+            z-index: 1000;
+        }
+
+        #game-over,
+        #level-complete {
+            display: none;
+        }
+
+        button {
+            margin: 10px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            color: white;
+        }
+
+        .btn-primary {
+            background: #3498db;
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+        }
+
+        .btn-success {
+            background: #4CAF50;
+        }
+
+        .rules {
+            text-align: left;
+            margin: 20px 0;
+            padding: 0 20px;
+        }
+
+        #model-loading {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 14px;
+            background: rgba(8, 12, 22, 0.78);
+            backdrop-filter: blur(2px);
+            -webkit-backdrop-filter: blur(2px);
+            z-index: 99999; /* 提高优先级，确保在所有界面之上 */
+            color: #e8f8ff;
+            font-size: 15px;
+            letter-spacing: 0.3px;
+        }
+
+        @media screen and (max-width: 768px) {
+            #model-loading {
+                font-size: 15px;
+                gap: 12px;
+            }
+            #model-loading .spinner {
+                width: 38px;
+                height: 38px;
+                border-width: 7px;
+            }
+        }
+
+        #model-loading .spinner {
+            width: 44px;
+            height: 44px;
+            border: 8px solid rgba(110, 210, 255, 0.25); /* 加粗 */
+            border-top-color: #6ed2ff;
+            border-radius: 50%;
+            animation: modelSpin 0.85s linear infinite;
+            -webkit-animation: modelSpin 0.85s linear infinite;
+            transform: translateZ(0);
+            will-change: transform;
+        }
+
+        #model-loading .loading-tip {
+            opacity: 0.92;
+            text-shadow: 0 0 8px rgba(110, 210, 255, 0.25);
+        }
+
+        @keyframes modelSpin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        @keyframes scoreTwinkle {
+            0% {
+                transform: scale(1);
+                opacity: 0.9;
+            }
+
+            50% {
+                transform: scale(1.04);
+                opacity: 1;
+            }
+
+            100% {
+                transform: scale(1);
+                opacity: 0.9;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="model-loading">
+        <div class="spinner"></div>
+        <div id="model-loading-text" class="loading-tip">正在加载模型 0%</div>
+    </div>
+
+    <div id="score" class="ui">
+        分数: 0
+    </div>
+    <div id="level" class="ui">
+        关卡: 1 / 目标: 50
+    </div>
+    <div id="debug" class="ui">
+        速度: 0.1 | 关卡: 1
+    </div>
+
+    <!-- 触摸控制区域 -->
+    <div id="touch-area"></div>
+
+    <div id="game-over">
+        <h2>游戏结束</h2>
+        <p>最终分数: <span id="final-score">0</span></p>
+        <p>最高关卡: <span id="final-level">1</span></p>
+        <button class="btn-success" onclick="restartGame(true)">重新开始</button>
+    </div>
+
+    <div id="pause-menu"
+        style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0, 0, 0, 0.9); color: white; padding: 30px; border-radius: 10px; text-align: center; z-index: 1000;">
+        <h2>游戏暂停</h2>
+        <div style="margin: 20px 0;">
+            <button class="btn-primary" onclick="resumeGame()"
+                style="margin: 10px; padding: 10px 20px; font-size: 16px;">继续游戏</button>
+            <button class="btn-success" onclick="restartGame()"
+                style="margin: 10px; padding: 10px 20px; font-size: 16px;">重新开始</button>
+        </div>
+    </div>
+
+    <div id="start-screen">
+        <h2>奶龙跑酷</h2>
+        <div class="rules">
+            <h3>游戏规则：</h3>
+            <div id="rules-desktop">
+                <p>1. 使用 A/← 键向左移动</p>
+                <p>2. 使用 D/→ 键向右移动</p>
+                <p>3. 按 P 键暂停游戏</p>
+                <p>4. 躲避奶龙</p>
+                <p>5. 收集星光积分</p>
+                <p>6. 达到目标分数升级关卡</p>
+                <p>7. 撞到奶龙游戏结束</p>
+            </div>
+            <div id="rules-mobile" style="display: none;">
+                <p>1. 在屏幕下方左右滑动控制小球</p>
+                <p>2. 点击屏幕上方任意位置暂停游戏</p>
+                <p>3. 躲避奶龙</p>
+                <p>4. 收集星光积分</p>
+                <p>5. 达到目标分数升级关卡</p>
+                <p>6. 撞到奶龙游戏结束</p>
+            </div>
+        </div>
+        <button class="btn-primary" onclick="startGame()">开始游戏</button>
+    </div>
+
+    <div id="level-complete">
+        <h2>关卡 <span id="completed-level">1</span> 完成！</h2>
+        <p>获得分数: <span id="completed-score">0</span></p>
+        <p>目标分数: <span id="completed-target">50</span></p>
+        <button class="btn-primary" onclick="nextLevel()">进入下一关</button>
+        <button class="btn-danger" onclick="restartGame()">重新开始</button>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js?v=3"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/loaders/GLTFLoader.js"></script>
+    <script>
+        // 全局变量
+        let animationId = null;
+        let lastTime = 0;
+        let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+        // 游戏配置
+        const config = {
+            speed: 0.1,
+            moveSpeed: 0.05,
+            roadWidth: 12,
+            roadLength: 200,
+            segments: isMobile ? 8 : 10,
+            maxDistance: 1000, // 基础最大距离
+            fixedTimeStep: 1 / 60 // 固定时间步长，60fps
+        };
+
+        // 关卡配置
+        const levels = [
+            { score: 100, speed: 0.25 },    // 第一关：100分
+            { score: 250, speed: 0.3 },     // 第二关：250分
+            { score: 450, speed: 0.35 },    // 第三关：450分
+            { score: 700, speed: 0.4 },     // 第四关：700分
+            { score: 1000, speed: 0.45 },   // 第五关：1000分
+            { score: 1350, speed: 0.5 },    // 第六关：1350分
+            { score: 1750, speed: 0.55 },   // 第七关：1750分
+            { score: 2200, speed: 0.6 },    // 第八关：2200分
+            { score: 2700, speed: 0.65 },   // 第九关：2700分
+            { score: -1, speed: 0.7 }       // 第十关：无限模式，-1表示无目标分数
+        ];
+
+        // 游戏状态
+        let game = {
+            level: 1,
+            score: 0,
+            gameOver: false,
+            gameStarted: false,
+            distance: 0,
+            paused: false
+        };
+
+        // Three.js 变量
+        let scene, camera, renderer, ball;
+        let roadSegments = [];
+        let obstacles = [];
+        let collectibles = [];
+        let collectibleBursts = [];
+        let lastBallX = 0;
+        let ballTrailNodes = [];
+        let ballTrailSystem = null;
+        let ballTrailSprites = [];
+        const ballTrailMaxNodes = isMobile ? 40 : 56;
+        let ballTrailDirection = null;
+        let keys = {};
+        let roadMaterial = null;
+        let vortexTexturePool = [];
+        let naiLongModel = null;
+        let naiLongModelTemplate = null;
+        let modelLoadingShownAt = 0;
+        const minLoadingVisibleMs = isMobile ? 520 : 260;
+        const mobileTextureAnisotropyCap = 2;
+
+        function showModelLoading(text = '正在加载模型 0%') {
+            const loadingEl = document.getElementById('model-loading');
+            const textEl = document.getElementById('model-loading-text');
+            if (textEl) textEl.textContent = text;
+            if (loadingEl) {
+                modelLoadingShownAt = performance.now();
+                loadingEl.style.display = 'flex';
+            }
+        }
+
+        function updateModelLoading(progressText) {
+            const textEl = document.getElementById('model-loading-text');
+            if (textEl) textEl.textContent = progressText;
+        }
+
+        function hideModelLoading() {
+            const loadingEl = document.getElementById('model-loading');
+            if (!loadingEl) return;
+            const elapsed = performance.now() - modelLoadingShownAt;
+            const remain = Math.max(0, minLoadingVisibleMs - elapsed);
+            if (remain > 0) {
+                setTimeout(() => {
+                    loadingEl.style.display = 'none';
+                }, remain);
+                return;
+            }
+            loadingEl.style.display = 'none';
+        }
+
+        // 初始化游戏
+        function initGame() {
+            // 停止旧的动画循环
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+
+            // 加载保存的游戏状态
+            loadGameState();
+            console.log('Loaded game state:', game);
+
+            // 设置当前关卡的速度
+            config.speed = levels[game.level - 1].speed;
+
+            // 根据游戏速度动态调整移动速度
+            // 移动速度与游戏速度成正比，确保移动速度能够跟上滚动速度
+            config.moveSpeed = Math.min(0.2, config.speed * 0.7);
+
+            // 随关卡增加增大最大滚动长度
+            // 关卡1: 1800 (约2分钟), 关卡5: 4000 (约3.5分钟)
+            // 非线性增长，后面的关卡增加更多时间
+            config.maxDistance = 1800 + (game.level - 1) * 200 + Math.pow(game.level - 1, 2) * 100;
+
+            // 重置游戏状态（如果是首次加载或重新开始）
+            if (!game.gameStarted) {
+                // 不重置分数，保留加载的分数
+                // if (game.level === 1) {
+                //     game.score = 0;
+                // }
+                game.gameOver = false;
+                game.distance = 0;
+                game.paused = false;
+            } else {
+                // 如果是加载保存的游戏状态，重置距离
+                game.distance = 0;
+                // 重置游戏开始状态，避免立即进入关卡完成
+                game.gameStarted = false;
+            }
+
+            // 清空数组
+            roadSegments = [];
+            obstacles = [];
+            collectibles = [];
+            collectibleBursts = [];
+            ballTrailNodes = [];
+            ballTrailSystem = null;
+            ballTrailSprites = [];
+            ballTrailDirection = null;
+            vortexTexturePool = [];
+            keys = {};
+
+            // 清除旧场景
+            if (renderer) {
+                document.body.removeChild(renderer.domElement);
+                renderer.dispose();
+            }
+
+            // 创建场景
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a2e);
+
+            // 加载奶龙模型（命中缓存时不显示 loading）
+            const loader = new THREE.GLTFLoader();
+            naiLongModel = null;
+
+            // 使用 CDN 压缩模型路径
+            const modelPath = 'https://cdn.jsdelivr.net/gh/afresh-breeze/AI-creation@main/nailong_run/nailong_packed.glb';
+
+            if (naiLongModelTemplate) {
+                naiLongModel = naiLongModelTemplate.clone(true);
+                const loadingEl = document.getElementById('model-loading');
+                if (loadingEl) loadingEl.style.display = 'none';
+                createRoad();
+            } else {
+                showModelLoading('正在加载模型 0%');
+
+                loader.load(
+                    modelPath,
+                    function (gltf) {
+                        naiLongModel = gltf.scene;
+                        naiLongModel.scale.set(0.8, 0.8, 0.8);
+                        naiLongModel.position.y = -0.5;
+                        naiLongModel.traverse(function (child) {
+                            if (child.isMesh) {
+                                child.castShadow = !isMobile;
+                                child.receiveShadow = false;
+
+                                if (child.geometry && !child.geometry.attributes.normal) {
+                                    child.geometry.computeVertexNormals();
+                                }
+
+                                if (child.material) {
+                                    const materials = Array.isArray(child.material) ? child.material : [child.material];
+                                    const tunedMaterials = materials.map((mat) => {
+                                        if (!mat) return mat;
+                                        // 原色基础上轻微提升饱和度和亮度
+                                        let baseColor = mat.color ? mat.color.clone() : new THREE.Color(0xffffff);
+                                        baseColor.offsetHSL(0, 0.08, 0.08); // 饱和度+0.08，亮度+0.08
+                                        const phong = new THREE.MeshPhongMaterial({
+                                            color: baseColor,
+                                            map: mat.map || null,
+                                            transparent: !!mat.transparent,
+                                            opacity: typeof mat.opacity === 'number' ? mat.opacity : 1,
+                                            alphaTest: typeof mat.alphaTest === 'number' ? mat.alphaTest : 0,
+                                            side: mat.side !== undefined ? mat.side : THREE.DoubleSide,
+                                            depthTest: true,
+                                            depthWrite: true,
+                                            dithering: true,
+                                            vertexColors: !!mat.vertexColors,
+                                            skinning: !!child.isSkinnedMesh
+                                        });
+
+                                        if (phong.map) {
+                                            phong.map.encoding = THREE.sRGBEncoding;
+                                            const maxAniso = renderer && renderer.capabilities
+                                                ? renderer.capabilities.getMaxAnisotropy()
+                                                : 1;
+                                            const anisoCap = isMobile ? mobileTextureAnisotropyCap : 8;
+                                            phong.map.anisotropy = Math.max(1, Math.min(anisoCap, maxAniso));
+                                            phong.map.needsUpdate = true;
+                                        }
+                                        phong.shininess = 12;
+                                        phong.specular.setHex(0x222222);
+                                        phong.needsUpdate = true;
+                                        return phong;
+                                    });
+
+                                    child.material = Array.isArray(child.material) ? tunedMaterials : tunedMaterials[0];
+                                }
+                            }
+                        });
+
+                        naiLongModelTemplate = naiLongModel.clone(true);
+                        console.log('模型加载成功');
+                        hideModelLoading();
+
+                        // 模型加载完成后再创建道路和障碍物
+                        createRoad();
+                    },
+                    function (xhr) {
+                        const total = xhr.total || 0;
+                        if (total > 0) {
+                            const percent = Math.min(100, Math.round((xhr.loaded / total) * 100));
+                            updateModelLoading(`正在加载模型 ${percent}%`);
+                            console.log(percent + '% 加载完成');
+                        } else {
+                            updateModelLoading('正在加载模型...');
+                        }
+                    },
+                    function (error) {
+                        console.error('模型加载失败的原因:', error);
+                        updateModelLoading('模型加载失败，请刷新重试');
+                        // 在手机上弹窗提示具体错误，方便调试
+                        // alert('错误详情: ' + JSON.stringify(error));
+                    }
+                );
+            }
+
+            // 添加背景星星效果
+            addBackgroundStars();
+
+            // 创建相机
+            const aspect = window.innerWidth / window.innerHeight;
+            const fov = isMobile ? 85 : 75; // 手机端使用更大的视场角
+            camera = new THREE.PerspectiveCamera(fov, aspect, 0.1, 1000);
+            camera.position.set(0, isMobile ? 6.4 : 5, isMobile ? 11.8 : 10);
+
+            // 创建渲染器
+            renderer = new THREE.WebGLRenderer({
+                antialias: true,
+                powerPreference: 'high-performance',
+                alpha: true
+            });
+            // 移动端进一步降低像素比，提升流畅度
+            const mobilePixelRatioCap = (window.devicePixelRatio || 1) >= 2 ? 1.25 : 1.15;
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? mobilePixelRatioCap : 2));
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            // 启用抗锯齿和其他渲染选项
+            renderer.setClearColor(0x1a1a2e, 1);
+            renderer.toneMapping = THREE.LinearToneMapping;
+            // 亮度统一：移动端和PC端toneMappingExposure一致
+            renderer.toneMappingExposure = 1.0;
+            renderer.outputEncoding = THREE.sRGBEncoding;
+            document.body.appendChild(renderer.domElement);
+
+            // 添加灯光
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.36);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.75);
+            directionalLight.position.set(0, 10, -5);
+            scene.add(directionalLight);
+
+            // 侧光适中
+            const sideLight = new THREE.DirectionalLight(0xffffff, 0.22);
+            sideLight.position.set(10, 5, 0);
+            scene.add(sideLight);
+
+            // 创建小球
+            createBall();
+
+            // 道路将在奶龙模型加载完成后创建
+
+            // 预热漩涡纹理池，避免运行中频繁生成卡顿
+            if (vortexTexturePool.length === 0) {
+                // 移动端多预热，减少运行时卡顿
+                const poolSize = isMobile ? 6 : 4;
+                for (let i = 0; i < poolSize; i++) {
+                    vortexTexturePool.push(createVortexTexture());
+                }
+            }
+
+            // 更新UI
+            updateUI();
+
+            // 显示开始屏幕
+            document.getElementById('start-screen').style.display = 'block';
+            document.getElementById('game-over').style.display = 'none';
+            document.getElementById('level-complete').style.display = 'none';
+
+            // 开始动画
+            animate(performance.now());
+        }
+
+        // 添加背景星星效果
+        function addBackgroundStars() {
+            const starsGeometry = new THREE.BufferGeometry();
+            const starsCount = isMobile ? 220 : 1000;
+
+            const positions = new Float32Array(starsCount * 3);
+            const colors = new Float32Array(starsCount * 3);
+
+            for (let i = 0; i < starsCount; i++) {
+                // 位置：避开道路通道，避免在路中间出现“方块”干扰
+                let x, y, z;
+                let attempts = 0;
+                do {
+                    x = (Math.random() - 0.5) * 220;
+                    y = (Math.random() - 0.5) * 120;
+                    z = (Math.random() - 0.5) * 260;
+                    attempts++;
+                } while (
+                    attempts < 12 &&
+                    Math.abs(x) < config.roadWidth * 0.8 &&
+                    y > -2 && y < 8 &&
+                    z > -80 && z < 30
+                );
+                positions[i * 3] = x;
+                positions[i * 3 + 1] = y;
+                positions[i * 3 + 2] = z;
+
+                // 颜色
+                const color = new THREE.Color();
+                color.setHSL(Math.random(), 0.8, 0.8);
+                colors[i * 3] = color.r;
+                colors[i * 3 + 1] = color.g;
+                colors[i * 3 + 2] = color.b;
+            }
+
+            starsGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            starsGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            // 圆形星点纹理，避免点精灵显示成小方块
+            const starCanvas = document.createElement('canvas');
+            starCanvas.width = 32;
+            starCanvas.height = 32;
+            const sctx = starCanvas.getContext('2d');
+            const starGrad = sctx.createRadialGradient(16, 16, 0, 16, 16, 14);
+            starGrad.addColorStop(0, 'rgba(255,255,255,1)');
+            starGrad.addColorStop(0.35, 'rgba(220,235,255,0.9)');
+            starGrad.addColorStop(1, 'rgba(220,235,255,0)');
+            sctx.fillStyle = starGrad;
+            sctx.fillRect(0, 0, 32, 32);
+            const starTexture = new THREE.CanvasTexture(starCanvas);
+
+            const starsMaterial = new THREE.PointsMaterial({
+                size: isMobile ? 0.42 : 0.55,
+                map: starTexture,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.72,
+                depthWrite: false
+            });
+
+            const stars = new THREE.Points(starsGeometry, starsMaterial);
+            scene.add(stars);
+        }
+
+        // 创建小球
+        function createBall() {
+            const createBallSurfaceTexture = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 512;
+                canvas.height = 256;
+                const ctx = canvas.getContext('2d');
+
+                const base = ctx.createLinearGradient(0, 0, canvas.width, 0);
+                base.addColorStop(0, '#3aa2d7');
+                base.addColorStop(0.5, '#7fd9ff');
+                base.addColorStop(1, '#2d88bf');
+                ctx.fillStyle = base;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                // 可见滚动细节：经向条纹 + 亮暗带
+                for (let i = 0; i < 16; i++) {
+                    const x = (i / 16) * canvas.width;
+                    ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.15)' : 'rgba(25,70,120,0.18)';
+                    ctx.fillRect(x, 0, canvas.width / 32, canvas.height);
+                }
+
+                for (let i = 0; i < 6; i++) {
+                    const y = (i / 6) * canvas.height;
+                    ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)';
+                    ctx.fillRect(0, y, canvas.width, canvas.height / 14);
+                }
+
+                const tex = new THREE.CanvasTexture(canvas);
+                tex.wrapS = THREE.RepeatWrapping;
+                tex.wrapT = THREE.RepeatWrapping;
+                tex.repeat.set(1, 1);
+                return tex;
+            };
+
+            const ballGroup = new THREE.Group();
+            const surfaceMap = createBallSurfaceTexture();
+
+            const core = new THREE.Mesh(
+                new THREE.SphereGeometry(0.5, 32, 32),
+                new THREE.MeshStandardMaterial({
+                    map: surfaceMap,
+                    color: 0x6fd3ff,
+                    roughness: 0.38,
+                    metalness: 0.18,
+                    emissive: 0x1a3f5a,
+                    emissiveIntensity: 0.18
+                })
+            );
+            const glowShell = new THREE.Mesh(
+                new THREE.SphereGeometry(0.56, 24, 24),
+                new THREE.MeshStandardMaterial({
+                    color: 0xb5ecff,
+                    transparent: true,
+                    opacity: 0.18,
+                    roughness: 0.18,
+                    metalness: 0.06,
+                    emissive: 0x4fd2ff,
+                    emissiveIntensity: 0.22
+                })
+            );
+            const ring = new THREE.Mesh(
+                new THREE.TorusGeometry(0.44, 0.04, 12, 48),
+                new THREE.MeshStandardMaterial({
+                    color: 0xffffff,
+                    emissive: 0x7fe7ff,
+                    emissiveIntensity: 0.38,
+                    roughness: 0.32,
+                    metalness: 0.12
+                })
+            );
+            ring.rotation.x = Math.PI / 2;
+
+            ballGroup.add(core);
+            ballGroup.add(glowShell);
+            ballGroup.add(ring);
+            ballGroup.userData.ring = ring;
+            ballGroup.userData.radius = 0.5;
+            ballGroup.userData.core = core;
+
+            ball = ballGroup;
+            ball.position.set(0, 0.5, 0);
+            lastBallX = ball.position.x;
+            scene.add(ball);
+
+            createBallTrailSystem();
+        }
+
+        function createBallTrailSystem() {
+            // 防止重复挂载导致状态异常
+            if (ballTrailSystem && ballTrailSystem.parent) {
+                ballTrailSystem.parent.remove(ballTrailSystem);
+            }
+
+            // 地面光路贴图：中心亮、两侧羽化、尾部渐隐（淡色）
+            const texCanvas = document.createElement('canvas');
+            texCanvas.width = 128;
+            texCanvas.height = 512;
+            const tctx = texCanvas.getContext('2d');
+            tctx.clearRect(0, 0, 128, 512);
+
+            for (let y = 0; y < 512; y++) {
+                const v = 1 - y / 512;
+                const alpha = Math.pow(v, 1.5);
+                const grad = tctx.createLinearGradient(0, 0, 128, 0);
+                grad.addColorStop(0, `rgba(70, 180, 255, 0)`);
+                grad.addColorStop(0.32, `rgba(90, 195, 255, ${alpha * 0.28})`);
+                grad.addColorStop(0.5, `rgba(220, 245, 255, ${alpha * 0.44})`);
+                grad.addColorStop(0.68, `rgba(90, 195, 255, ${alpha * 0.28})`);
+                grad.addColorStop(1, `rgba(70, 180, 255, 0)`);
+                tctx.fillStyle = grad;
+                tctx.fillRect(0, y, 128, 1);
+            }
+
+            const spriteTex = new THREE.CanvasTexture(texCanvas);
+            ballTrailSystem = new THREE.Group();
+            ballTrailSprites = [];
+            ballTrailNodes = [];
+
+            const segments = ballTrailMaxNodes - 1;
+            const geo = new THREE.PlaneGeometry(1, 1, 1, segments);
+            const mat = new THREE.MeshBasicMaterial({
+                map: spriteTex,
+                color: 0x6ecfff,
+                transparent: true,
+                opacity: 0.38,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                depthTest: true,
+                side: THREE.DoubleSide
+            });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(0, 0, 0);
+            mesh.frustumCulled = false;
+            ballTrailSystem.add(mesh);
+            ballTrailSprites.push(mesh);
+
+            // 拖尾节点全部初始化为当前小球位置，避免断裂
+            let px = 0, pz = 0;
+            if (ball && typeof ball.position !== 'undefined') {
+                px = ball.position.x;
+                pz = ball.position.z;
+            }
+            for (let j = 0; j <= segments; j++) {
+                ballTrailNodes.push(new THREE.Vector3(px, 0.015, pz - j * 0.12));
+            }
+            scene.add(ballTrailSystem);
+            ballTrailDirection = new THREE.Vector3(0, 0, 1);
+        }
+
+        function ensureBallTrailSystem() {
+            if (!scene || !ball) return;
+            const mesh = ballTrailSprites[0];
+            const missingSystem = !ballTrailSystem || ballTrailSystem.parent !== scene;
+            const missingMesh = !mesh || !mesh.geometry || !mesh.geometry.attributes || !mesh.geometry.attributes.position;
+            const nodeMismatch = ballTrailNodes.length !== ballTrailMaxNodes;
+
+            if (missingSystem || missingMesh || nodeMismatch) {
+                createBallTrailSystem();
+            }
+        }
+
+        function updateBallRollAndTrail(dt, timeSec) {
+            if (!ball || !ballTrailSystem) return;
+
+            const ballRadius = ball.userData.radius || 0.5;
+            const dx = ball.position.x - lastBallX;
+            const dz = -config.speed; // 道路向前滚动等价为小球向 -Z 方向前进
+            const distance = Math.sqrt(dx * dx + dz * dz);
+
+            if (distance > 1e-5) {
+                // 物理滚动轴：up x displacement，确保与运动方向一致
+                const axis = new THREE.Vector3(dz, 0, -dx).normalize();
+                const angle = distance / ballRadius;
+                const q = new THREE.Quaternion().setFromAxisAngle(axis, angle);
+                ball.quaternion.premultiply(q);
+            }
+            lastBallX = ball.position.x;
+
+            // 地面光路：沿运动轨迹实时生成，停止后逐步淡去
+            const direction = new THREE.Vector3(-dx, 0, -dz);
+            if (direction.lengthSq() < 1e-5) {
+                direction.set(0, 0, 1);
+            } else {
+                direction.normalize();
+            }
+
+            if (!ballTrailDirection) {
+                ballTrailDirection = direction.clone();
+            } else {
+                ballTrailDirection.lerp(direction, 0.2).normalize();
+            }
+
+            const isMoving = Math.abs(dx) + Math.abs(dz) > 0.00008;
+            const head = new THREE.Vector3(
+                ball.position.x + ballTrailDirection.x * 0.28,
+                0.015,
+                ball.position.z + ballTrailDirection.z * 0.28
+            );
+
+            for (let j = 0; j < ballTrailNodes.length; j++) {
+                ballTrailNodes[j].z += config.speed;
+            }
+
+            if (isMoving) {
+                for (let j = ballTrailNodes.length - 1; j > 0; j--) {
+                    ballTrailNodes[j].copy(ballTrailNodes[j - 1]);
+                }
+                ballTrailNodes[0].copy(head);
+            } else {
+                // 停止移动时，光路自然淡去：前端也后移，不再注入新节点
+                for (let j = 0; j < ballTrailNodes.length - 1; j++) {
+                    ballTrailNodes[j].copy(ballTrailNodes[j + 1]);
+                }
+                ballTrailNodes[ballTrailNodes.length - 1].set(
+                    ballTrailNodes[ballTrailNodes.length - 1].x,
+                    0.015,
+                    ballTrailNodes[ballTrailNodes.length - 1].z + config.speed
+                );
+            }
+
+            const mesh = ballTrailSprites[0];
+            const posAttr = mesh.geometry.attributes.position;
+            const up = new THREE.Vector3(0, 1, 0);
+
+            for (let j = 0; j < ballTrailNodes.length; j++) {
+                const p = ballTrailNodes[j];
+                const t = j / (ballTrailNodes.length - 1); // 头->尾
+
+                let tangent = ballTrailDirection.clone();
+                if (j > 0 && j < ballTrailNodes.length - 1) {
+                    tangent.subVectors(ballTrailNodes[j - 1], ballTrailNodes[j + 1]).normalize();
+                }
+                let right = new THREE.Vector3().crossVectors(up, tangent).normalize();
+                if (right.lengthSq() < 0.0001) right.set(1, 0, 0);
+
+                // 渐细 + 收拢
+                // 头部先尖后展，避免起点出现“凸出来一块”
+                let width;
+                if (t < 0.06) {
+                    width = 0.03 + (t / 0.06) * 0.72;
+                } else {
+                    width = 0.76 * Math.pow(1 - (t - 0.06) / 0.94, 1.03) + 0.04;
+                }
+                // 取消尾部向当前球心横向回拉，避免出现“回勾”
+                const center = new THREE.Vector3(
+                    p.x,
+                    0.015,
+                    p.z
+                );
+                const pL = center.clone().addScaledVector(right, width * 0.5);
+                const pR = center.clone().addScaledVector(right, -width * 0.5);
+
+                const vIdxL = j * 2;
+                const vIdxR = j * 2 + 1;
+                posAttr.setXYZ(vIdxL, pL.x, pL.y, pL.z);
+                posAttr.setXYZ(vIdxR, pR.x, pR.y, pR.z);
+            }
+            posAttr.needsUpdate = true;
+
+            // 淡色 + 轻微呼吸，不抢主体
+            const baseOpacity = isMoving ? 0.38 : 0.2;
+            mesh.material.opacity = baseOpacity + 0.045 * Math.sin(timeSec * 6.0);
+        }
+
+        // 创建道路
+        function createRoad() {
+            const segmentLength = config.roadLength / config.segments;
+            const geometry = new THREE.PlaneGeometry(config.roadWidth, segmentLength);
+            roadMaterial = createRoadMaterial();
+
+            for (let i = 0; i < config.segments; i++) {
+                const segment = new THREE.Mesh(geometry, roadMaterial);
+                segment.rotation.x = -Math.PI / 2;
+                segment.position.set(0, 0, -i * segmentLength);
+                roadSegments.push(segment);
+                scene.add(segment);
+
+                // 生成障碍物和积分
+                generateObjects(-i * segmentLength, segmentLength);
+            }
+        }
+
+        function createRoadMaterial() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
+            gradient.addColorStop(0, '#252938');
+            gradient.addColorStop(0.5, '#34384c');
+            gradient.addColorStop(1, '#252938');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+            for (let y = 0; y < canvas.height; y += 26) {
+                ctx.beginPath();
+                ctx.moveTo(0, y + (Math.random() * 4));
+                ctx.lineTo(canvas.width, y + (Math.random() * 4));
+                ctx.stroke();
+            }
+
+            ctx.strokeStyle = 'rgba(100,220,255,0.25)';
+            ctx.lineWidth = 3;
+            ctx.setLineDash([18, 14]);
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2, 0);
+            ctx.lineTo(canvas.width / 2, canvas.height);
+            ctx.stroke();
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            texture.repeat.set(1, 5);
+
+            return new THREE.MeshStandardMaterial({
+                map: texture,
+                color: 0xe6e6e6,
+                roughness: 0.92,
+                metalness: 0.04,
+                side: THREE.DoubleSide,
+                emissive: 0x141a26,
+                emissiveIntensity: 0.18
+            });
+        }
+
+        function drawBlinkFace(faceData, timeMs) {
+            const { canvas, ctx, texture, palette } = faceData;
+            const w = canvas.width;
+            const h = canvas.height;
+
+            if (timeMs > faceData.nextBlinkAt) {
+                faceData.blinking = true;
+                faceData.blinkProgress = 1;
+                faceData.nextBlinkAt = timeMs + 1500 + Math.random() * 2200;
+            }
+
+            if (faceData.blinking) {
+                faceData.blinkProgress -= 0.14;
+                if (faceData.blinkProgress <= 0) {
+                    faceData.blinking = false;
+                    faceData.blinkProgress = 0;
+                }
+            }
+
+            const eyeOpen = faceData.blinking ? Math.max(0.08, faceData.blinkProgress) : 1;
+
+            const gradient = ctx.createLinearGradient(0, 0, w, h);
+            gradient.addColorStop(0, palette.top);
+            gradient.addColorStop(1, palette.bottom);
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, w, h);
+
+            ctx.fillStyle = 'rgba(255,255,255,0.14)';
+            ctx.fillRect(10, 12, w - 20, 20);
+
+            ctx.fillStyle = '#ffffff';
+            const eyeWidth = 18;
+            const eyeHeight = Math.max(4, Math.floor(14 * eyeOpen));
+            const eyeY = 30 + Math.floor((14 - eyeHeight) / 2);
+            ctx.fillRect(26, eyeY, eyeWidth, eyeHeight);
+            ctx.fillRect(w - 26 - eyeWidth, eyeY, eyeWidth, eyeHeight);
+
+            texture.needsUpdate = true;
+        }
+
+        function createVortexTexture() {
+            const canvas = document.createElement('canvas');
+            const vortexTexSize = isMobile ? 640 : 1024;
+            canvas.width = vortexTexSize;
+            canvas.height = vortexTexSize;
+            const ctx = canvas.getContext('2d');
+            const c = canvas.width / 2;
+            const maxR = c * 0.92;
+            const rInner = 10;
+
+            // 透明底：只画漩涡线条主体
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 干净通透的亮白 / 冰蓝（不发脏、不偏紫）
+            const colors = {
+                glow: 'rgba(120, 200, 255, 0.05)',
+                ice: 'rgba(170, 220, 255, 0.46)',
+                white: 'rgba(255, 255, 255, 0.55)'
+            };
+
+            const drawSpiralBand = (bandIndex, bandCount) => {
+                // 外圈更疏、内圈更紧：turns 随 bandIndex 增加
+                const uBand = bandIndex / Math.max(1, bandCount - 1); // 0外 -> 1内
+                const turns = 3.2 + uBand * 5.2; // 内圈更紧凑
+                const maxTheta = turns * Math.PI * 2;
+
+                // 外圈线更粗，内圈更细（外宽内窄）
+                const wOuter = 26;
+                const wInner = 1.0;
+                const bandWidth = wInner + (wOuter - wInner) * Math.pow(1 - uBand, 1.25);
+
+                // 该层占用的半径区间：外层跨度大，内层跨度小，层层递进
+                const spanBase = (maxR - rInner);
+                const span = spanBase * (0.22 + 0.28 * Math.pow(1 - uBand, 1.2));
+                const startR = maxR - (spanBase * (0.08 + uBand * 0.82));
+                const endR = Math.max(rInner, startR - span);
+
+                const steps = isMobile ? 760 : 1200;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+
+                // 只给“最外圈靠近边缘”的螺旋线条加外发光，内圈绝对不加光
+                const isOuterBand = bandIndex === 0;
+                const glowStartR = maxR * 0.84;      // 仅在最外缘附近出现辉光
+                const glowClipInnerR = maxR * 0.82;  // 防止辉光向内侵入导致糊
+
+                for (let i = 1; i <= steps; i++) {
+                    const t = i / steps;
+                    // 由外到内收缩（自然透视：靠中心更紧密）
+                    const theta = t * maxTheta;
+                    const tight = 1 + uBand * 0.6;
+                    const r = startR - Math.pow(t, 1.18 + uBand * 0.35) * (startR - endR);
+
+                    const x = c + Math.cos(theta * tight) * r;
+                    const y = c + Math.sin(theta * tight) * r;
+                    const prevT = (i - 1) / steps;
+                    const prevTheta = prevT * maxTheta;
+                    const prevR = startR - Math.pow(prevT, 1.18 + uBand * 0.35) * (startR - endR);
+                    const px = c + Math.cos(prevTheta * tight) * prevR;
+                    const py = c + Math.sin(prevTheta * tight) * prevR;
+
+                    const w = Math.max(0.8, bandWidth * (0.22 + 0.78 * (1 - t))); // 向中心变细
+                    const rMid = (r + prevR) * 0.5;
+
+                    // 光效：仅最外圈螺旋线条的外侧辉光（不影响内圈）
+                    // 通过“仅外缘半径段 + 径向裁剪”避免把内部线条糊成一团
+                    if (isOuterBand && rMid >= glowStartR) {
+                        ctx.save();
+                        // 只允许绘制在外缘区域（r >= glowClipInnerR）
+                        ctx.beginPath();
+                        ctx.arc(c, c, maxR * 1.05, 0, Math.PI * 2);
+                        ctx.arc(c, c, glowClipInnerR, 0, Math.PI * 2, true);
+                        ctx.clip();
+
+                        ctx.strokeStyle = colors.glow;
+                        ctx.globalAlpha = 0.04;
+                        ctx.lineWidth = w * 2.8;
+                        ctx.beginPath();
+                        ctx.moveTo(px, py);
+                        ctx.lineTo(x, y);
+                        ctx.stroke();
+
+                        ctx.strokeStyle = colors.glow;
+                        ctx.globalAlpha = 0.022;
+                        ctx.lineWidth = w * 4.8;
+                        ctx.beginPath();
+                        ctx.moveTo(px, py);
+                        ctx.lineTo(x, y);
+                        ctx.stroke();
+
+                        // 第3层：极淡超宽羽化，强调晕染感，不增加亮边感
+                        ctx.strokeStyle = colors.glow;
+                        ctx.globalAlpha = 0.012;
+                        ctx.lineWidth = w * 6.2;
+                        ctx.beginPath();
+                        ctx.moveTo(px, py);
+                        ctx.lineTo(x, y);
+                        ctx.stroke();
+
+                        ctx.restore();
+                    }
+
+                    // 冰蓝主体
+                    ctx.strokeStyle = colors.ice;
+                    ctx.globalAlpha = 0.33 + 0.13 * (1 - t);
+                    ctx.lineWidth = w * 0.95;
+                    ctx.beginPath();
+                    ctx.moveTo(px, py);
+                    ctx.lineTo(x, y);
+                    ctx.stroke();
+
+                    // 白色高光（更细）
+                    ctx.strokeStyle = colors.white;
+                    ctx.globalAlpha = 0.21 + 0.15 * (1 - t);
+                    ctx.lineWidth = Math.max(0.7, w * 0.22);
+                    ctx.beginPath();
+                    ctx.moveTo(px, py);
+                    ctx.lineTo(x, y);
+                    ctx.stroke();
+                }
+            };
+
+            // 多层同心嵌套
+            const bandCount = 4;
+            // 先画内圈（清晰锐利），最后画外圈并添加外缘辉光，避免内圈被糊
+            for (let b = bandCount - 1; b >= 0; b--) {
+                drawSpiralBand(b, bandCount);
+            }
+
+            // 中心自然向内“吞噬”暗化（仍透明背景，不画外部底）
+            const centerFade = ctx.createRadialGradient(c, c, 0, c, c, c * 0.18);
+            centerFade.addColorStop(0, 'rgba(0,0,0,0.35)');
+            centerFade.addColorStop(0.55, 'rgba(0,0,0,0.12)');
+            centerFade.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = centerFade;
+            ctx.beginPath();
+            ctx.arc(c, c, c * 0.18, 0, Math.PI * 2);
+            ctx.fill();
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.minFilter = THREE.LinearFilter;
+            texture.magFilter = THREE.LinearFilter;
+            return texture;
+        }
+
+        function createDonutObstacle(obstacle) {
+            const dough = new THREE.Mesh(
+                new THREE.TorusGeometry(0.62, 0.22, 20, 80),
+                new THREE.MeshStandardMaterial({
+                    color: 0xc6924e,
+                    roughness: 0.62,
+                    metalness: 0.06
+                })
+            );
+            obstacle.add(dough);
+
+            const glaze = new THREE.Mesh(
+                new THREE.TorusGeometry(0.62, 0.205, 20, 80, Math.PI),
+                new THREE.MeshStandardMaterial({
+                    color: 0x8f5a2d,
+                    roughness: 0.48,
+                    metalness: 0.08,
+                    emissive: 0x2d1709,
+                    emissiveIntensity: 0.18
+                })
+            );
+            glaze.rotation.z = Math.PI;
+            glaze.position.y = 0.04;
+            obstacle.add(glaze);
+
+            for (let i = 0; i < 18; i++) {
+                const sprinkle = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.08, 0.02, 0.02),
+                    new THREE.MeshStandardMaterial({
+                        color: [0xe8d37f, 0xcf8c6f, 0xe9b86b][i % 3],
+                        roughness: 0.4,
+                        metalness: 0.05
+                    })
+                );
+                const angle = Math.random() * Math.PI * 2;
+                const r = 0.62 + (Math.random() - 0.5) * 0.16;
+                sprinkle.position.set(Math.cos(angle) * r, Math.abs(Math.sin(angle)) * 0.22 + 0.02, Math.sin(angle) * r);
+                sprinkle.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+                obstacle.add(sprinkle);
+            }
+
+            obstacle.userData.collider = { type: 'torus', ringRadius: 0.62, tubeRadius: 0.22, isArch: true };
+            obstacle.userData.type = 'donut';
+        }
+
+        function createFaceBlockObstacle(obstacle) {
+            const baseColors = [0x6879d8, 0x4f65c0, 0x7487df, 0x4257ae, 0x5c72cb, 0x4a61b6];
+            const faceCanvas = document.createElement('canvas');
+            faceCanvas.width = 96;
+            faceCanvas.height = 96;
+            const faceCtx = faceCanvas.getContext('2d');
+            const faceTexture = new THREE.CanvasTexture(faceCanvas);
+
+            const palette = { top: '#7f90e8', bottom: '#465db2' };
+            drawBlinkFace({
+                canvas: faceCanvas,
+                ctx: faceCtx,
+                texture: faceTexture,
+                palette,
+                nextBlinkAt: Number.MAX_SAFE_INTEGER,
+                blinking: false,
+                blinkProgress: 0
+            }, 0);
+
+            const mats = [
+                new THREE.MeshStandardMaterial({ color: baseColors[0], roughness: 0.35, metalness: 0.2 }),
+                new THREE.MeshStandardMaterial({ color: baseColors[1], roughness: 0.35, metalness: 0.2 }),
+                new THREE.MeshStandardMaterial({ color: baseColors[2], roughness: 0.35, metalness: 0.2 }),
+                new THREE.MeshStandardMaterial({ color: baseColors[3], roughness: 0.35, metalness: 0.2 }),
+                new THREE.MeshStandardMaterial({ map: faceTexture, roughness: 0.3, metalness: 0.15 }),
+                new THREE.MeshStandardMaterial({ color: baseColors[5], roughness: 0.35, metalness: 0.2 })
+            ];
+
+            const block = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mats);
+            obstacle.add(block);
+            obstacle.userData.collider = { type: 'box', halfX: 0.5, halfY: 0.5, halfZ: 0.5 };
+            obstacle.userData.type = 'faceBlock';
+            obstacle.userData.blinkFace = {
+                canvas: faceCanvas,
+                ctx: faceCtx,
+                texture: faceTexture,
+                palette,
+                nextBlinkAt: 900 + Math.random() * 2400,
+                blinking: false,
+                blinkProgress: 0
+            };
+        }
+
+        function createCandleObstacle(obstacle) {
+            const waxBody = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.42, 0.48, 1, 20),
+                new THREE.MeshStandardMaterial({
+                    color: 0xf5ecda,
+                    roughness: 0.82,
+                    metalness: 0.02
+                })
+            );
+            obstacle.add(waxBody);
+
+            const waxTop = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.34, 0.38, 0.22, 20),
+                new THREE.MeshStandardMaterial({
+                    color: 0xf8f2e4,
+                    roughness: 0.86,
+                    metalness: 0.01
+                })
+            );
+            waxTop.position.y = 0.48;
+            obstacle.add(waxTop);
+
+            for (let i = 0; i < 3; i++) {
+                const drip = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.08, 0.22 + i * 0.04, 0.06),
+                    new THREE.MeshStandardMaterial({
+                        color: i % 2 === 0 ? 0xf1e5cf : 0xf8f1df,
+                        roughness: 0.92,
+                        metalness: 0
+                    })
+                );
+                drip.position.set(-0.18 + i * 0.18, 0.2 - i * 0.06, 0.43);
+                obstacle.add(drip);
+            }
+
+            const wick = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.015, 0.018, 0.12, 8),
+                new THREE.MeshStandardMaterial({ color: 0x2d1c12, roughness: 1, metalness: 0 })
+            );
+            wick.position.y = 0.66;
+            obstacle.add(wick);
+
+            const flameOuter = new THREE.Mesh(
+                new THREE.ConeGeometry(0.12, 0.32, 10),
+                new THREE.MeshStandardMaterial({
+                    color: 0xfff2c5,
+                    emissive: 0xffe08a,
+                    emissiveIntensity: 1.2,
+                    transparent: true,
+                    opacity: 0.95
+                })
+            );
+            const flameInner = new THREE.Mesh(
+                new THREE.ConeGeometry(0.06, 0.2, 10),
+                new THREE.MeshStandardMaterial({
+                    color: 0xff8e4f,
+                    emissive: 0xff6d2e,
+                    emissiveIntensity: 0.9
+                })
+            );
+            flameOuter.position.y = 0.84;
+            flameInner.position.y = 0.82;
+            obstacle.add(flameOuter);
+            obstacle.add(flameInner);
+
+            obstacle.userData.collider = { type: 'cylinder', radius: 0.48, halfHeight: 0.5 };
+            obstacle.userData.type = 'candle';
+            obstacle.userData.flameOuter = flameOuter;
+            obstacle.userData.flameInner = flameInner;
+            obstacle.userData.flamePhase = Math.random() * Math.PI * 2;
+        }
+
+        function createVortexObstacle(obstacle) {
+            const texture = vortexTexturePool.length
+                ? vortexTexturePool[Math.floor(Math.random() * vortexTexturePool.length)]
+                : createVortexTexture();
+            texture.wrapS = THREE.ClampToEdgeWrapping;
+            texture.wrapT = THREE.ClampToEdgeWrapping;
+            texture.center.set(0.5, 0.5);
+
+            const front = new THREE.Mesh(
+                new THREE.CircleGeometry(0.55, 56),
+                new THREE.MeshStandardMaterial({
+                    map: texture,
+                    color: 0xffffff,
+                    transparent: true,
+                    opacity: 1,
+                    depthWrite: false,
+                    side: THREE.DoubleSide,
+                    roughness: 0.25,
+                    metalness: 0.05,
+                    emissive: 0xbfe8ff,
+                    emissiveIntensity: 0.35,
+                    emissiveMap: texture,
+                    blending: THREE.AdditiveBlending
+                })
+            );
+            const back = front.clone();
+            back.material = front.material.clone();
+            back.material.map = texture;
+            back.rotation.y = Math.PI;
+            front.position.z = 0.09;
+            back.position.z = -0.09;
+            obstacle.add(front);
+            obstacle.add(back);
+
+            obstacle.userData.collider = { type: 'cylinder', radius: 0.55, halfHeight: 0.55 };
+            obstacle.userData.type = 'vortex';
+            // 漩涡尺寸多样性：受控随机，避免过小/过大
+            obstacle.userData.sizeFactor = 0.88 + Math.random() * 0.38; // [0.88, 1.26]
+            obstacle.userData.vortexTexture = texture;
+            obstacle.userData.vortexFront = front;
+            obstacle.userData.vortexBack = back;
+            obstacle.userData.vortexPhase = Math.random() * Math.PI * 2;
+        }
+
+        // 生成障碍物和积分
+        function generateObjects(startZ, segmentLength) {
+            const columns = [-4.5, -1.5, 1.5, 4.5];
+            const availableColumns = [...columns];
+
+            // 根据关卡计算障碍物生成概率（关卡越高，概率越高）
+            const obstacleChance = Math.min(0.98, 0.8 + (game.level - 1) * 0.1);
+
+            // 每个路段生成2-3个障碍物，随关卡增加而增多
+            // 关卡1-2: 2个障碍物
+            // 关卡3-5: 2-3个障碍物
+            // 关卡6+: 3个障碍物
+            let obstacleCount;
+            if (game.level <= 2) {
+                obstacleCount = 2;
+            } else if (game.level <= 5) {
+                obstacleCount = Math.random() > 0.3 ? 3 : 2;
+            } else {
+                obstacleCount = 3;
+            }
+
+            // 计算障碍物的均匀分布位置（减小间距，增加密度）
+            const spacing = segmentLength / (obstacleCount + 1);
+
+            for (let i = 0; i < obstacleCount && availableColumns.length > 0; i++) {
+                if (Math.random() < obstacleChance) {
+                    const isWide = Math.random() > 0.5 && availableColumns.length >= 2;
+
+                    if (isWide) {
+                        const index = Math.floor(Math.random() * (availableColumns.length - 1));
+                        const x1 = availableColumns[index];
+                        const x2 = availableColumns[index + 1];
+                        const x = (x1 + x2) / 2;
+                        availableColumns.splice(index, 2);
+
+                        // 均匀分布的Z位置，添加随机偏移，避免过于整齐
+                        const z = startZ - (i + 1) * spacing + (Math.random() - 0.5) * (spacing * 0.5);
+                        // 确保障碍物不会生成在小球初始位置附近，减小距离
+                        if (z < -30) {
+                            const obstacle = createObstacle(true);
+                            if (obstacle) {
+                                obstacle.position.set(x, obstacle.userData.hiddenY + 2.0, z);
+                                obstacle.scale.set(4, 4, 4);
+                                obstacles.push(obstacle);
+                                scene.add(obstacle);
+                            }
+                        }
+                    } else {
+                        const index = Math.floor(Math.random() * availableColumns.length);
+                        const x = availableColumns[index];
+                        availableColumns.splice(index, 1);
+
+                        // 均匀分布的Z位置，添加随机偏移，避免过于整齐
+                        const z = startZ - (i + 1) * spacing + (Math.random() - 0.5) * (spacing * 0.5);
+                        // 确保障碍物不会生成在小球初始位置附近，减小距离
+                        if (z < -30) {
+                            const obstacle = createObstacle(false);
+                            if (obstacle) {
+                                obstacle.position.set(x, obstacle.userData.hiddenY + 0.5, z);
+                                obstacle.scale.set(2, 2, 2);
+                                obstacles.push(obstacle);
+                                scene.add(obstacle);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 生成积分（增加积分生成概率）
+            // 关卡越高，积分生成概率越高
+            const collectibleChance = Math.min(0.98, 0.9 + (game.level - 1) * 0.02);
+            if (Math.random() < collectibleChance) { // 随关卡增加的积分生成概率
+                // 选择积分的X位置
+                let x;
+                if (availableColumns.length > 0) {
+                    // 从剩余列中随机选择
+                    const index = Math.floor(Math.random() * availableColumns.length);
+                    x = availableColumns[index];
+                } else {
+                    // 如果没有剩余列，从所有列中随机选择
+                    const index = Math.floor(Math.random() * columns.length);
+                    x = columns[index];
+                }
+
+                // 积分放在路段中间，添加随机偏移
+                const z = startZ - segmentLength / 2 + (Math.random() - 0.5) * 3;
+
+                // 确保积分不会生成在小球初始位置附近，距离更远
+                if (z < -15) {
+                    // 检查积分位置是否与障碍物重叠（减小安全距离，增加积分生成机会）
+                    let isOverlap = false;
+                    obstacles.forEach(obstacle => {
+                        const obsZ = obstacle.position.z;
+                        if (Math.abs(z - obsZ) < 1.5) { // 1.5 是安全距离，比之前的2更小
+                            isOverlap = true;
+                        }
+                    });
+
+                    if (!isOverlap) {
+                        const collectible = createCollectible();
+                        collectible.userData.finalY = 1;
+                        collectible.userData.fadeStartZ = -66;
+                        collectible.userData.fadeEndZ = -26;
+                        collectible.userData.baseScale = 1.2;
+                        collectible.position.set(x, collectible.userData.finalY, z);
+                        collectible.scale.set(1.2, 1.2, 1.2);
+                        collectibles.push(collectible);
+                        scene.add(collectible);
+                    }
+                }
+            }
+
+            // 第四关及以上，额外增加积分生成机会
+            if (game.level >= 4 && Math.random() < 0.5) { // 50% 概率额外生成一个积分
+                // 选择积分的X位置（与第一个积分位置不同的列）
+                let x;
+                const usedColumns = new Set();
+                // 收集已使用的列
+                obstacles.forEach(obstacle => {
+                    usedColumns.add(obstacle.position.x);
+                });
+                // 收集可用的列
+                const possibleColumns = columns.filter(col => !usedColumns.has(col));
+
+                if (possibleColumns.length > 0) {
+                    const index = Math.floor(Math.random() * possibleColumns.length);
+                    x = possibleColumns[index];
+                } else {
+                    const index = Math.floor(Math.random() * columns.length);
+                    x = columns[index];
+                }
+
+                // 积分放在路段中，与第一个积分位置不同
+                const z = startZ - segmentLength / 2 + (Math.random() - 0.5) * 6;
+
+                // 确保积分不会生成在小球初始位置附近，距离更远
+                if (z < -15) {
+                    // 检查积分位置是否与障碍物重叠
+                    let isOverlap = false;
+                    obstacles.forEach(obstacle => {
+                        const obsZ = obstacle.position.z;
+                        if (Math.abs(z - obsZ) < 1.5) {
+                            isOverlap = true;
+                        }
+                    });
+
+                    if (!isOverlap) {
+                        const collectible = createCollectible();
+                        collectible.userData.finalY = 1;
+                        collectible.userData.fadeStartZ = -66;
+                        collectible.userData.fadeEndZ = -26;
+                        collectible.userData.baseScale = 1.2;
+                        collectible.position.set(x, collectible.userData.finalY, z);
+                        collectible.scale.set(1.2, 1.2, 1.2);
+                        collectibles.push(collectible);
+                        scene.add(collectible);
+                    }
+                }
+            }
+        }
+
+        // 创建简单的奶龙模型作为替代
+        function createSimpleNaiLong() {
+            const naiLong = new THREE.Group();
+
+            // 身体 - 黄色
+            const body = new THREE.Mesh(
+                new THREE.SphereGeometry(0.5, 32, 32),
+                new THREE.MeshStandardMaterial({ color: 0xffcc66 })
+            );
+            body.position.y = 0.3;
+            naiLong.add(body);
+
+            // 头部 - 黄色
+            const head = new THREE.Mesh(
+                new THREE.SphereGeometry(0.35, 32, 32),
+                new THREE.MeshStandardMaterial({ color: 0xffcc66 })
+            );
+            head.position.set(0, 0.9, 0);
+            naiLong.add(head);
+
+            // 眼睛 - 黑色
+            const eye1 = new THREE.Mesh(
+                new THREE.SphereGeometry(0.08, 16, 16),
+                new THREE.MeshStandardMaterial({ color: 0x000000 })
+            );
+            eye1.position.set(-0.15, 1.0, 0.3);
+            naiLong.add(eye1);
+
+            const eye2 = eye1.clone();
+            eye2.position.x = 0.15;
+            naiLong.add(eye2);
+
+            // 嘴巴 - 红色
+            const mouth = new THREE.Mesh(
+                new THREE.BoxGeometry(0.25, 0.1, 0.15),
+                new THREE.MeshStandardMaterial({ color: 0xff6666 })
+            );
+            mouth.position.set(0, 0.8, 0.3);
+            naiLong.add(mouth);
+
+            // 手臂
+            const arm1 = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.1, 0.1, 0.4, 16),
+                new THREE.MeshStandardMaterial({ color: 0xffcc66 })
+            );
+            arm1.rotation.set(0, -Math.PI / 4, Math.PI / 4);
+            arm1.position.set(-0.4, 0.6, 0.1);
+            naiLong.add(arm1);
+
+            const arm2 = arm1.clone();
+            arm2.rotation.set(0, Math.PI / 4, -Math.PI / 4);
+            arm2.position.set(0.4, 0.6, 0.1);
+            naiLong.add(arm2);
+
+            // 腿
+            const leg1 = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.12, 0.12, 0.3, 16),
+                new THREE.MeshStandardMaterial({ color: 0xffcc66 })
+            );
+            leg1.rotation.set(Math.PI / 4, 0, 0);
+            leg1.position.set(-0.2, 0, -0.3);
+            naiLong.add(leg1);
+
+            const leg2 = leg1.clone();
+            leg2.rotation.set(-Math.PI / 4, 0, 0);
+            leg2.position.set(0.2, 0, -0.3);
+            naiLong.add(leg2);
+
+            return naiLong;
+        }
+
+        // 创建障碍物
+        function createObstacle(isWide) {
+            const obstacle = new THREE.Group();
+
+            // 只在奶龙模型存在时才创建障碍物
+            if (naiLongModel) {
+                const naiLongClone = naiLongModel.clone();
+                obstacle.add(naiLongClone);
+                obstacle.userData.type = 'naiLong';
+
+                // 根据奶龙的实际大小设置碰撞体
+                if (isWide) {
+                    // 宽障碍物（大奶龙）- 只检测脚的部分，进一步缩小判定盒
+                    obstacle.userData.collider = {
+                        type: 'naiLongLegs',
+                        halfX: 0.12, // 脚的宽度
+                        halfY: 0.08, // 脚的高度
+                        halfZ: 0.12, // 脚的深度
+                        footY: 0.4 // 脚的Y轴位置
+                    };
+                } else {
+                    // 普通障碍物（小奶龙）- 检测整个身体包括手的部分，进一步缩小判定盒
+                    obstacle.userData.collider = {
+                        type: 'naiLongFull',
+                        bodyHalfX: 0.17, // 身体宽度
+                        bodyHalfY: 0.25, // 身体高度
+                        bodyHalfZ: 0.17, // 身体深度
+                        armHalfX: 0.08, // 手臂宽度
+                        armHalfY: 0.08, // 手臂高度
+                        armHalfZ: 0.08, // 手臂深度
+                        armX: 0.27, // 手臂X轴位置
+                        armY: 0.5, // 手臂Y轴位置
+                        armZ: 0.1  // 手臂Z轴位置
+                    };
+                }
+                obstacle.userData.isArch = false;
+                obstacle.userData.finalY = 1;
+                obstacle.userData.hiddenY = -1.2;
+                return obstacle;
+            } else {
+                // 如果模型还没加载完成，返回null
+                return null;
+            }
+        }
+
+        // 创建积分
+        function createCollectible() {
+            const star = new THREE.Group();
+            const createPointedRayGeometry = (length, width, depth) => {
+                const shape = new THREE.Shape();
+                shape.moveTo(0, length / 2);
+                shape.lineTo(width / 2, 0);
+                shape.lineTo(0, -length / 2);
+                shape.lineTo(-width / 2, 0);
+                shape.closePath();
+                return new THREE.ExtrudeGeometry(shape, {
+                    depth,
+                    bevelEnabled: false
+                });
+            };
+
+            const createSoftSparkleTexture = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 128;
+                canvas.height = 128;
+                const ctx = canvas.getContext('2d');
+                const c = 64;
+
+                const gradient = ctx.createRadialGradient(c, c, 0, c, c, 56);
+                gradient.addColorStop(0, 'rgba(255,255,255,1)');
+                gradient.addColorStop(0.35, 'rgba(255,255,255,0.7)');
+                gradient.addColorStop(1, 'rgba(255,255,255,0)');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, 128, 128);
+
+                const tex = new THREE.CanvasTexture(canvas);
+                tex.needsUpdate = true;
+                return tex;
+            };
+
+           ;
+
+            const rayMaterial = new THREE.MeshStandardMaterial({
+                color: 0xffffff,
+                emissive:  0xfff4d7,
+                emissiveIntensity: 1.2,
+                roughness: 0.12,
+                metalness: 0.22,
+                transparent: true,
+                opacity: 0.98
+            });
+
+            const rays = [
+                { width: 0.08, length: 0.92, z: 0, rot: 0 },
+                { width: 0.08, length: 0.92, z: 0, rot: Math.PI / 2 },
+                { width: 0.055, length: 0.62, z: 0.01, rot: Math.PI / 4 },
+                { width: 0.055, length: 0.62, z: 0.01, rot: -Math.PI / 4 }
+            ];
+
+            rays.forEach(ray => {
+                const mesh = new THREE.Mesh(createPointedRayGeometry(ray.length, ray.width, 0.02), rayMaterial);
+                mesh.rotation.z = ray.rot;
+                mesh.position.z = ray.z;
+                mesh.position.y = 0;
+                star.add(mesh);
+            });
+
+            const center = new THREE.Mesh(
+                new THREE.SphereGeometry(0.08, 12, 12),
+                new THREE.MeshStandardMaterial({
+                    color: 0xffffff,
+                    emissive: 0xffedb0,
+                    emissiveIntensity: 0.95,
+                    transparent: true,
+                    opacity: 0.9
+                })
+            );
+            star.add(center);
+
+            // 白色光效：小范围柔光粒子环绕，不做包裹球
+            const sparkleTexture = createSoftSparkleTexture();
+            const sparkles = [];
+            for (let i = 0; i < 6; i++) {
+                const sparkle = new THREE.Sprite(
+                    new THREE.SpriteMaterial({
+                        map: sparkleTexture,
+                        color: 0xffffff,
+                        transparent: true,
+                        opacity: 0.36,
+                        depthWrite: false,
+                        blending: THREE.AdditiveBlending
+                    })
+                );
+                sparkle.userData.phase = Math.random() * Math.PI * 2;
+                sparkle.userData.radius = 0.22 + Math.random() * 0.14;
+                sparkle.userData.speed = 1 + Math.random() * 0.9;
+                sparkle.userData.heightOffset = (Math.random() - 0.5) * 0.16;
+                sparkle.userData.size = 0.11 + Math.random() * 0.07;
+                sparkle.scale.setScalar(sparkle.userData.size);
+                star.add(sparkle);
+                sparkles.push(sparkle);
+            }
+            star.userData.sparkles = sparkles;
+
+            star.userData.collectibleRadius = 0.26;
+            return star;
+        }
+
+        function spawnCollectibleBurst(position) {
+            const burst = new THREE.Group();
+            const count = 10;
+            for (let i = 0; i < count; i++) {
+                const ray = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.04, 0.3 + Math.random() * 0.2, 0.04),
+                    new THREE.MeshStandardMaterial({
+                        color: 0xfff0ad,
+                        emissive: 0xffc65b,
+                        emissiveIntensity: 1,
+                        transparent: true,
+                        opacity: 0.95
+                    })
+                );
+                const angle = (i / count) * Math.PI * 2;
+                ray.position.set(Math.cos(angle) * 0.1, Math.sin(angle) * 0.1, (Math.random() - 0.5) * 0.1);
+                ray.rotation.z = angle;
+                ray.userData.vx = Math.cos(angle) * (0.02 + Math.random() * 0.03);
+                ray.userData.vy = Math.sin(angle) * (0.02 + Math.random() * 0.03);
+                ray.userData.life = 0.5 + Math.random() * 0.25;
+                burst.add(ray);
+            }
+            burst.position.copy(position);
+            burst.userData.life = 0.7;
+            collectibleBursts.push(burst);
+            scene.add(burst);
+        }
+
+        // 处理移动
+        function getBallHorizontalLimit() {
+            const ballRadius = ball && ball.userData && ball.userData.radius ? ball.userData.radius : 0.5;
+            const visualSafetyMargin = isMobile ? 0.2 : 0.08;
+            return Math.max(0.5, (config.roadWidth / 2) - ballRadius - visualSafetyMargin);
+        }
+
+        function handleMovement() {
+            if (game.gameOver) return;
+
+            let moveX = 0;
+            if (keys['a'] || keys['arrowleft']) moveX -= config.moveSpeed;
+            if (keys['d'] || keys['arrowright']) moveX += config.moveSpeed;
+
+            ball.position.x += moveX;
+
+            // 边界限制，防止小球半个卡边
+            const halfRoadSafe = getBallHorizontalLimit();
+            ball.position.x = Math.max(-halfRoadSafe, Math.min(halfRoadSafe, ball.position.x));
+        }
+
+        // 更新道路
+        function updateRoad() {
+            if (game.gameOver) return;
+
+            game.distance += config.speed;
+
+            // 检查最大距离
+            if (game.distance >= config.maxDistance) {
+                endGame();
+                return;
+            }
+
+            // 每次更新都检查是否达到关卡目标分数
+            checkLevelUp();
+
+            const segmentLength = config.roadLength / config.segments;
+            if (roadMaterial && roadMaterial.map) {
+                roadMaterial.map.offset.y -= config.speed * 0.04;
+            }
+
+            // 移动路段
+            roadSegments.forEach(segment => {
+                segment.position.z += config.speed;
+                if (segment.position.z > segmentLength) {
+                    scene.remove(segment);
+                    roadSegments.shift();
+
+                    // 创建新路段
+                    const geometry = new THREE.PlaneGeometry(config.roadWidth, segmentLength);
+                    const newSegment = new THREE.Mesh(geometry, roadMaterial);
+                    newSegment.rotation.x = -Math.PI / 2;
+                    newSegment.position.set(0, 0, roadSegments[roadSegments.length - 1].position.z - segmentLength);
+                    roadSegments.push(newSegment);
+                    scene.add(newSegment);
+
+                    // 生成障碍物和积分
+                    generateObjects(newSegment.position.z, segmentLength);
+                }
+            });
+
+            // 移动障碍物
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                obstacles[i].position.z += config.speed;
+                const riseStartZ = -72;
+                const riseEndZ = -30;
+                const progress = Math.max(0, Math.min(1, (obstacles[i].position.z - riseStartZ) / (riseEndZ - riseStartZ)));
+
+                // 计算基础Y轴位置
+                let baseY = obstacles[i].userData.hiddenY +
+                    (obstacles[i].userData.finalY - obstacles[i].userData.hiddenY) * progress;
+
+                // 根据障碍物大小调整Y轴位置，确保奶龙的脚能够显示出来
+                const scale = obstacles[i].scale.y;
+                if (scale > 3) {
+                    // 大奶龙需要更高的Y轴位置
+                    baseY += 1.5;
+                } else if (scale > 1.5) {
+                    // 中等大小的奶龙需要稍高的Y轴位置
+                    baseY += 0.5;
+                }
+
+                obstacles[i].position.y = baseY;
+
+                // 奶龙障碍物不需要特殊处理
+
+                if (obstacles[i].position.z > 10) {
+                    scene.remove(obstacles[i]);
+                    obstacles.splice(i, 1);
+                }
+            }
+
+            // 移动积分
+            for (let i = collectibles.length - 1; i >= 0; i--) {
+                collectibles[i].position.z += config.speed;
+                const fadeStartZ = collectibles[i].userData.fadeStartZ ?? -66;
+                const fadeEndZ = collectibles[i].userData.fadeEndZ ?? -26;
+                const appearProgress = Math.max(0, Math.min(1, (collectibles[i].position.z - fadeStartZ) / (fadeEndZ - fadeStartZ)));
+                collectibles[i].rotation.y += 0.015;
+                const pulse = 0.92 + Math.sin(performance.now() * 0.006 + i) * 0.1;
+                const baseScale = collectibles[i].userData.baseScale ?? 1.2;
+                const fadeScale = 0.6 + appearProgress * 0.4;
+                collectibles[i].scale.set(pulse * baseScale * fadeScale, pulse * baseScale * fadeScale, pulse * baseScale * fadeScale);
+                const sparkles = collectibles[i].userData.sparkles || [];
+                const t = performance.now() * 0.001;
+                sparkles.forEach((sparkle, idx) => {
+                    const angle = t * sparkle.userData.speed + sparkle.userData.phase;
+                    sparkle.position.x = Math.cos(angle) * sparkle.userData.radius;
+                    sparkle.position.y = Math.sin(angle * 1.2) * 0.05 + sparkle.userData.heightOffset;
+                    sparkle.position.z = Math.sin(angle) * sparkle.userData.radius * 0.15;
+                    const twinkle = 0.26 + (0.18 * Math.sin(t * 5 + idx));
+                    sparkle.material.opacity = twinkle * appearProgress;
+                    const sizePulse = 0.95 + 0.15 * Math.sin(t * 3.4 + idx);
+                    sparkle.scale.setScalar(sparkle.userData.size * sizePulse);
+                });
+
+                collectibles[i].traverse((node) => {
+                    if (node.material && typeof node.material.opacity === 'number') {
+                        if (!(collectibles[i].userData.sparkles || []).includes(node)) {
+                            node.material.opacity = 0.05 + appearProgress * 0.93;
+                        }
+                    }
+                });
+                if (collectibles[i].position.z > 10) {
+                    scene.remove(collectibles[i]);
+                    collectibles.splice(i, 1);
+                }
+            }
+
+            for (let i = collectibleBursts.length - 1; i >= 0; i--) {
+                const burst = collectibleBursts[i];
+                burst.position.z += config.speed;
+                burst.userData.life -= 0.03;
+                burst.children.forEach(ray => {
+                    ray.position.x += ray.userData.vx;
+                    ray.position.y += ray.userData.vy;
+                    ray.userData.life -= 0.03;
+                    ray.material.opacity = Math.max(0, ray.userData.life);
+                    ray.scale.y *= 0.97;
+                });
+                if (burst.userData.life <= 0 || burst.position.z > 12) {
+                    scene.remove(burst);
+                    collectibleBursts.splice(i, 1);
+                }
+            }
+        }
+
+        // 碰撞检测
+        function checkCollisions() {
+            if (game.gameOver) return;
+
+            // 小球的边界球半径
+            const ballRadius = ball.userData.radius || 0.5;
+            const ballPosition = ball.position;
+
+            // 检测障碍物碰撞 - 严格判定，碰到即算
+            let collisionDetected = false;
+            obstacles.forEach(obstacle => {
+                const scale = obstacle.scale;
+                const position = obstacle.position;
+                const collider = obstacle.userData.collider || { type: 'box', halfX: 0.5, halfY: 0.5, halfZ: 0.5 };
+
+                if (collider.type === 'box') {
+                    const halfWidth = collider.halfX * scale.x;
+                    const halfHeight = collider.halfY * scale.y;
+                    const halfDepth = collider.halfZ * scale.z;
+
+                    const minX = position.x - halfWidth;
+                    const maxX = position.x + halfWidth;
+                    const minY = position.y - halfHeight;
+                    const maxY = position.y + halfHeight;
+                    const minZ = position.z - halfDepth;
+                    const maxZ = position.z + halfDepth;
+
+                    const closestX = Math.max(minX, Math.min(ballPosition.x, maxX));
+                    const closestY = Math.max(minY, Math.min(ballPosition.y, maxY));
+                    const closestZ = Math.max(minZ, Math.min(ballPosition.z, maxZ));
+
+                    const distance = Math.sqrt(
+                        Math.pow(ballPosition.x - closestX, 2) +
+                        Math.pow(ballPosition.y - closestY, 2) +
+                        Math.pow(ballPosition.z - closestZ, 2)
+                    );
+
+                    if (distance < ballRadius) {
+                        collisionDetected = true;
+                    }
+                } else if (collider.type === 'naiLongLegs') {
+                    // 大奶龙 - 只检测脚的部分
+                    const halfX = collider.halfX * scale.x;
+                    const halfY = collider.halfY * scale.y;
+                    const halfZ = collider.halfZ * scale.z;
+                    const footY = collider.footY * scale.y;
+
+                    // 计算脚的位置
+                    const footPositionY = position.y - footY;
+
+                    const minX = position.x - halfX;
+                    const maxX = position.x + halfX;
+                    const minY = footPositionY - halfY;
+                    const maxY = footPositionY + halfY;
+                    const minZ = position.z - halfZ;
+                    const maxZ = position.z + halfZ;
+
+                    const closestX = Math.max(minX, Math.min(ballPosition.x, maxX));
+                    const closestY = Math.max(minY, Math.min(ballPosition.y, maxY));
+                    const closestZ = Math.max(minZ, Math.min(ballPosition.z, maxZ));
+
+                    const distance = Math.sqrt(
+                        Math.pow(ballPosition.x - closestX, 2) +
+                        Math.pow(ballPosition.y - closestY, 2) +
+                        Math.pow(ballPosition.z - closestZ, 2)
+                    );
+
+                    if (distance < ballRadius) {
+                        collisionDetected = true;
+                    }
+                } else if (collider.type === 'naiLongFull') {
+                    // 小奶龙 - 检测整个身体包括手的部分
+                    const bodyHalfX = collider.bodyHalfX * scale.x;
+                    const bodyHalfY = collider.bodyHalfY * scale.y;
+                    const bodyHalfZ = collider.bodyHalfZ * scale.z;
+                    const armHalfX = collider.armHalfX * scale.x;
+                    const armHalfY = collider.armHalfY * scale.y;
+                    const armHalfZ = collider.armHalfZ * scale.z;
+                    const armX = collider.armX * scale.x;
+                    const armY = collider.armY * scale.y;
+                    const armZ = collider.armZ * scale.z;
+
+                    // 检测身体碰撞
+                    const bodyMinX = position.x - bodyHalfX;
+                    const bodyMaxX = position.x + bodyHalfX;
+                    const bodyMinY = position.y - bodyHalfY;
+                    const bodyMaxY = position.y + bodyHalfY;
+                    const bodyMinZ = position.z - bodyHalfZ;
+                    const bodyMaxZ = position.z + bodyHalfZ;
+
+                    const bodyClosestX = Math.max(bodyMinX, Math.min(ballPosition.x, bodyMaxX));
+                    const bodyClosestY = Math.max(bodyMinY, Math.min(ballPosition.y, bodyMaxY));
+                    const bodyClosestZ = Math.max(bodyMinZ, Math.min(ballPosition.z, bodyMaxZ));
+
+                    const bodyDistance = Math.sqrt(
+                        Math.pow(ballPosition.x - bodyClosestX, 2) +
+                        Math.pow(ballPosition.y - bodyClosestY, 2) +
+                        Math.pow(ballPosition.z - bodyClosestZ, 2)
+                    );
+
+                    if (bodyDistance < ballRadius) {
+                        collisionDetected = true;
+                    }
+
+                    // 检测左臂碰撞
+                    const leftArmMinX = position.x - armX - armHalfX;
+                    const leftArmMaxX = position.x - armX + armHalfX;
+                    const leftArmMinY = position.y - armY - armHalfY;
+                    const leftArmMaxY = position.y - armY + armHalfY;
+                    const leftArmMinZ = position.z - armZ - armHalfZ;
+                    const leftArmMaxZ = position.z - armZ + armHalfZ;
+
+                    const leftArmClosestX = Math.max(leftArmMinX, Math.min(ballPosition.x, leftArmMaxX));
+                    const leftArmClosestY = Math.max(leftArmMinY, Math.min(ballPosition.y, leftArmMaxY));
+                    const leftArmClosestZ = Math.max(leftArmMinZ, Math.min(ballPosition.z, leftArmMaxZ));
+
+                    const leftArmDistance = Math.sqrt(
+                        Math.pow(ballPosition.x - leftArmClosestX, 2) +
+                        Math.pow(ballPosition.y - leftArmClosestY, 2) +
+                        Math.pow(ballPosition.z - leftArmClosestZ, 2)
+                    );
+
+                    if (leftArmDistance < ballRadius) {
+                        collisionDetected = true;
+                    }
+
+                    // 检测右臂碰撞
+                    const rightArmMinX = position.x + armX - armHalfX;
+                    const rightArmMaxX = position.x + armX + armHalfX;
+                    const rightArmMinY = position.y - armY - armHalfY;
+                    const rightArmMaxY = position.y - armY + armHalfY;
+                    const rightArmMinZ = position.z - armZ - armHalfZ;
+                    const rightArmMaxZ = position.z - armZ + armHalfZ;
+
+                    const rightArmClosestX = Math.max(rightArmMinX, Math.min(ballPosition.x, rightArmMaxX));
+                    const rightArmClosestY = Math.max(rightArmMinY, Math.min(ballPosition.y, rightArmMaxY));
+                    const rightArmClosestZ = Math.max(rightArmMinZ, Math.min(ballPosition.z, rightArmMaxZ));
+
+                    const rightArmDistance = Math.sqrt(
+                        Math.pow(ballPosition.x - rightArmClosestX, 2) +
+                        Math.pow(ballPosition.y - rightArmClosestY, 2) +
+                        Math.pow(ballPosition.z - rightArmClosestZ, 2)
+                    );
+
+                    if (rightArmDistance < ballRadius) {
+                        collisionDetected = true;
+                    }
+                } else if (collider.type === 'cylinder') {
+                    const radius = collider.radius * Math.max(scale.x, scale.z);
+                    const halfHeight = collider.halfHeight * scale.y;
+
+                    // 计算水平距离
+                    const dx = ballPosition.x - position.x;
+                    const dz = ballPosition.z - position.z;
+                    const horizontalDistance = Math.sqrt(dx * dx + dz * dz);
+
+                    // 计算垂直距离
+                    const dy = Math.abs(ballPosition.y - position.y);
+
+                    // 更精确的碰撞检测：球与圆柱表面的距离
+                    let surfaceDistance;
+                    if (horizontalDistance < radius) {
+                        // 球在圆柱正上方或正下方
+                        surfaceDistance = Math.abs(dy) - halfHeight;
+                    } else {
+                        // 球在圆柱侧面
+                        surfaceDistance = Math.sqrt(
+                            Math.pow(horizontalDistance - radius, 2) +
+                            Math.pow(Math.max(0, dy - halfHeight), 2)
+                        );
+                    }
+
+                    // 碰撞判定：小球表面接触到圆柱表面
+                    if (surfaceDistance < ballRadius) {
+                        collisionDetected = true;
+                    }
+                } else if (collider.type === 'torus') {
+                    const isArch = collider.isArch;
+
+                    if (isArch) {
+                        const torusRadius = collider.ringRadius * Math.max(scale.x, scale.z);
+                        const tubeRadius = collider.tubeRadius * Math.max(scale.x, scale.z);
+
+                        const dx = ballPosition.x - position.x;
+                        const dy = ballPosition.y - position.y;
+                        const distToCenter = Math.sqrt(dx * dx + dy * dy);
+
+                        const dz = Math.abs(ballPosition.z - position.z);
+
+                        const distToTubeCenter = Math.sqrt(
+                            Math.pow(distToCenter - torusRadius, 2) +
+                            dz * dz
+                        );
+
+                        if (distToTubeCenter < tubeRadius + ballRadius) {
+                            collisionDetected = true;
+                        }
+                    } else {
+                        const torusRadius = collider.ringRadius * Math.max(scale.x, scale.z);
+                        const tubeRadius = collider.tubeRadius * Math.max(scale.x, scale.z);
+
+                        const dx = ballPosition.x - position.x;
+                        const dy = ballPosition.y - position.y;
+                        const distToCenter = Math.sqrt(dx * dx + dy * dy);
+
+                        const dz = Math.abs(ballPosition.z - position.z);
+
+                        const distToTubeCenter = Math.sqrt(
+                            Math.pow(distToCenter - torusRadius, 2) +
+                            dz * dz
+                        );
+
+                        if (distToTubeCenter < tubeRadius + ballRadius) {
+                            collisionDetected = true;
+                        }
+                    }
+                } else {
+                    const halfWidth = 0.5 * scale.x;
+                    const halfHeight = 0.5 * scale.y;
+                    const halfDepth = 0.5 * scale.z;
+
+                    const minX = position.x - halfWidth;
+                    const maxX = position.x + halfWidth;
+                    const minY = position.y - halfHeight;
+                    const maxY = position.y + halfHeight;
+                    const minZ = position.z - halfDepth;
+                    const maxZ = position.z + halfDepth;
+
+                    const closestX = Math.max(minX, Math.min(ballPosition.x, maxX));
+                    const closestY = Math.max(minY, Math.min(ballPosition.y, maxY));
+                    const closestZ = Math.max(minZ, Math.min(ballPosition.z, maxZ));
+
+                    const distance = Math.sqrt(
+                        Math.pow(ballPosition.x - closestX, 2) +
+                        Math.pow(ballPosition.y - closestY, 2) +
+                        Math.pow(ballPosition.z - closestZ, 2)
+                    );
+
+                    if (distance < ballRadius) {
+                        collisionDetected = true;
+                    }
+                }
+            });
+
+            if (collisionDetected) {
+                game.gameOver = true;
+                game.gameStarted = false;
+                document.getElementById('game-over').style.display = 'block';
+                document.getElementById('final-score').textContent = game.score;
+                document.getElementById('final-level').textContent = game.level;
+                saveGameState();
+            }
+
+            // 检测积分碰撞
+            for (let i = collectibles.length - 1; i >= 0; i--) {
+                const collectible = collectibles[i];
+                const collectibleRadius = collectible.userData.collectibleRadius || 0.26;
+                const distance = ballPosition.distanceTo(collectible.position);
+
+                if (distance < ballRadius + collectibleRadius) {
+                    // 收集积分
+                    game.score += 10;
+                    spawnCollectibleBurst(collectible.position);
+                    scene.remove(collectible);
+                    collectibles.splice(i, 1);
+                    updateUI();
+                    saveGameState();
+                }
+            }
+        }
+
+        // 检查关卡升级
+        function checkLevelUp() {
+            // 第十关是无限模式，不检查积分
+            if (game.level === levels.length) {
+                return;
+            }
+
+            // 确保游戏未结束且分数达到目标
+            if (game.score >= levels[game.level - 1].score && !game.gameOver) {
+                console.log('Level complete:', game.level, 'Score:', game.score, 'Target:', levels[game.level - 1].score);
+
+                // 暂停游戏
+                game.gameStarted = false;
+
+                // 保存游戏状态（关卡完成）
+                saveGameState();
+
+                // 强制显示关卡完成提示
+                const levelCompleteEl = document.getElementById('level-complete');
+                const gameOverEl = document.getElementById('game-over');
+
+                if (levelCompleteEl) {
+                    levelCompleteEl.style.display = 'block';
+                    levelCompleteEl.style.zIndex = '9999';
+                }
+
+                if (gameOverEl) {
+                    gameOverEl.style.display = 'none';
+                }
+
+                // 更新UI
+                document.getElementById('completed-level').textContent = game.level;
+                document.getElementById('completed-score').textContent = game.score;
+                document.getElementById('completed-target').textContent = levels[game.level - 1].score;
+            }
+        }
+
+        // 更新UI
+        function updateUI() {
+            document.getElementById('score').textContent = '分数: ' + game.score;
+            document.getElementById('level').textContent = '关卡: ' + game.level + ' / 目标: ' + (levels[game.level - 1].score === -1 ? '无限' : levels[game.level - 1].score);
+            document.getElementById('debug').textContent = '速度: ' + config.speed.toFixed(2) + ' | 关卡: ' + game.level;
+        }
+
+        // 保存游戏状态
+        function saveGameState() {
+            try {
+                localStorage.setItem('gameState', JSON.stringify({
+                    level: game.level,
+                    score: game.score
+                }));
+            } catch (e) {
+                console.error('保存游戏状态失败:', e);
+            }
+        }
+
+        // 加载游戏状态
+        function loadGameState() {
+            try {
+                const saved = localStorage.getItem('gameState');
+                if (saved) {
+                    const state = JSON.parse(saved);
+                    game.level = state.level || 1;
+                    game.score = state.score || 0;
+                }
+            } catch (e) {
+                console.error('加载游戏状态失败:', e);
+            }
+        }
+
+        // 开始游戏
+        function startGame() {
+            game.gameStarted = true;
+            document.getElementById('start-screen').style.display = 'none';
+        }
+
+        // 重新开始游戏
+        function restartGame(fromGameOver = false) {
+            game.gameStarted = false;
+            game.gameOver = false;
+            game.distance = 0;
+            game.paused = false;
+            // 隐藏暂停提示框
+            document.getElementById('pause-menu').style.display = 'none';
+
+            // 重新初始化游戏
+            initGame();
+
+            if (fromGameOver) {
+                // 游戏结束后重新开始，从第一关开始
+                game.level = 1;
+                game.score = 0;
+            } else {
+                // 暂停后重新开始，保持当前关卡，清零分数
+                game.score = 0;
+            }
+
+            config.speed = levels[game.level - 1].speed;
+            config.moveSpeed = Math.min(0.2, config.speed * 0.7);
+            config.maxDistance = 1800 + (game.level - 1) * 200 + Math.pow(game.level - 1, 2) * 100;
+
+            saveGameState();
+            updateUI();
+        }
+
+        // 进入下一关
+        function nextLevel() {
+            document.getElementById('level-complete').style.display = 'none';
+            game.level++;
+            if (game.level > levels.length) game.level = levels.length;
+            // 重置分数，因为进入新关卡
+            game.score = 0;
+            // 保存游戏状态
+            saveGameState();
+            initGame();
+            game.gameStarted = true;
+            document.getElementById('start-screen').style.display = 'none';
+        }
+
+        // 暂停游戏
+        function pauseGame() {
+            if (game.gameOver || !game.gameStarted) return;
+            game.paused = true;
+            document.getElementById('pause-menu').style.display = 'block';
+            // 暂停时停止动画循环，防止恢复后重复循环导致状态异常
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+        }
+
+        // 继续游戏
+        function resumeGame() {
+            game.paused = false;
+            document.getElementById('pause-menu').style.display = 'none';
+            ensureBallTrailSystem();
+            if (ball && ballTrailNodes.length > 0) {
+                for (let j = 0; j < ballTrailNodes.length; j++) {
+                    ballTrailNodes[j].set(ball.position.x, 0.015, ball.position.z - j * 0.12);
+                }
+                ballTrailDirection = new THREE.Vector3(0, 0, 1);
+            }
+            // 只在没有动画循环时恢复，避免重复requestAnimationFrame链
+            lastTime = performance.now();
+            if (!animationId) {
+                animate(lastTime);
+            }
+        }
+
+        // 结束游戏
+        function endGame() {
+            game.gameOver = true;
+            game.gameStarted = false;
+            // 死亡后从第一关开始
+            game.level = 1;
+            game.score = 0;
+            config.speed = levels[game.level - 1].speed;
+            config.moveSpeed = Math.min(0.2, config.speed * 0.7);
+            config.maxDistance = 1800 + (game.level - 1) * 200 + Math.pow(game.level - 1, 2) * 100;
+            document.getElementById('game-over').style.display = 'block';
+            document.getElementById('final-score').textContent = game.score;
+            document.getElementById('final-level').textContent = game.level;
+            saveGameState();
+        }
+
+        // 动画循环
+        function animate(currentTime) {
+            animationId = requestAnimationFrame(animate);
+
+            // 计算时间差，确保不同设备上速度一致
+            if (!lastTime) lastTime = currentTime;
+            const deltaTime = (currentTime - lastTime) / 1000;
+            lastTime = currentTime;
+
+            // 限制时间差，防止大延迟导致的跳跃
+            const dt = Math.min(deltaTime, 0.1);
+
+            if (game.gameStarted && !game.gameOver && !game.paused && ball) {
+                ensureBallTrailSystem();
+                // 使用固定时间步长更新
+                const fixedSpeed = config.speed * (dt / config.fixedTimeStep);
+                const fixedMoveSpeed = config.moveSpeed * (dt / config.fixedTimeStep);
+
+                // 保存原始速度
+                const originalSpeed = config.speed;
+                const originalMoveSpeed = config.moveSpeed;
+
+                // 使用固定速度更新
+                config.speed = fixedSpeed;
+                config.moveSpeed = fixedMoveSpeed;
+
+                handleMovement();
+                updateRoad();
+                checkCollisions();
+                updateBallRollAndTrail(dt, currentTime * 0.001);
+
+                // 恢复原始速度
+                config.speed = originalSpeed;
+                config.moveSpeed = originalMoveSpeed;
+
+                // 更新相机
+                // 移动端固定X轴视角，避免左右操作时道路出现晃动感
+                const camTargetX = 0;
+                const camTargetY = isMobile ? 6.4 : 5;
+                const camLookAtY = isMobile ? 0.85 : 0.5;
+                const camZOffset = isMobile ? 11.8 : 10;
+
+                camera.position.x += (camTargetX - camera.position.x) * 0.12;
+                camera.position.y += (camTargetY - camera.position.y) * 0.12;
+                camera.position.z = ball.position.z + camZOffset;
+                camera.lookAt(camTargetX, camLookAtY, ball.position.z + 5.3);
+            }
+
+            // 在恢复原始速度后更新UI，确保显示的是原始速度
+            updateUI();
+
+            if (renderer && scene && camera) {
+                renderer.render(scene, camera);
+            }
+        }
+
+        // 事件监听
+        window.addEventListener('keydown', function (e) {
+            keys[e.key.toLowerCase()] = true;
+            if (e.key === ' ' || e.key === 'Spacebar') {
+                e.preventDefault();
+                if (game.gameStarted && !game.gameOver) {
+                    if (game.paused) {
+                        resumeGame();
+                    } else {
+                        pauseGame();
+                    }
+                }
+            }
+        });
+
+        window.addEventListener('keyup', function (e) {
+            keys[e.key.toLowerCase()] = false;
+        });
+
+        // 触摸控制
+        let touchStartX = 0;
+        let touchEndX = 0;
+        let touchLastX = 0;
+
+        document.getElementById('touch-area').addEventListener('touchstart', function (e) {
+            touchStartX = e.touches[0].clientX;
+            touchLastX = touchStartX;
+        });
+
+        document.getElementById('touch-area').addEventListener('touchmove', function (e) {
+            e.preventDefault(); // 防止页面滚动
+            touchEndX = e.touches[0].clientX;
+
+            if (isMobile && game.gameStarted && !game.gameOver && !game.paused && ball) {
+                const deltaX = touchEndX - touchLastX;
+                touchLastX = touchEndX;
+                const movementScale = (config.roadWidth / window.innerWidth) * 1.15;
+                ball.position.x += deltaX * movementScale;
+
+                // 边界限制，防止小球半个卡边
+                const halfRoadSafe = getBallHorizontalLimit();
+                ball.position.x = Math.max(-halfRoadSafe, Math.min(halfRoadSafe, ball.position.x));
+            } else if (!game.paused) {
+                // 计算滑动距离
+                const deltaX = touchEndX - touchStartX;
+
+                // 根据滑动距离模拟按键
+                if (deltaX > 20) {
+                    // 向右滑动
+                    keys['d'] = true;
+                    keys['arrowright'] = true;
+                } else if (deltaX < -20) {
+                    // 向左滑动
+                    keys['a'] = true;
+                    keys['arrowleft'] = true;
+                }
+            }
+        });
+
+        document.getElementById('touch-area').addEventListener('touchend', function (e) {
+            // 重置按键状态
+            keys['a'] = false;
+            keys['d'] = false;
+            keys['arrowleft'] = false;
+            keys['arrowright'] = false;
+        });
+
+        // 点击屏幕上方暂停游戏
+        if (isMobile) {
+            document.addEventListener('click', function (e) {
+                // 检查点击的是否是按钮元素或弹窗元素，如果是则不触发暂停
+                if (e.target.tagName === 'BUTTON' ||
+                    e.target.closest('.btn-primary') ||
+                    e.target.closest('.btn-secondary') ||
+                    e.target.closest('.modal') ||
+                    e.target.closest('#pause-menu') ||
+                    e.target.closest('#game-over') ||
+                    e.target.closest('#level-complete')) {
+                    return;
+                }
+
+                // 检查游戏是否已经暂停，如果是则不触发暂停
+                if (game.paused) {
+                    return;
+                }
+
+                // 检查点击位置是否在触摸控制区域外
+                const touchArea = document.getElementById('touch-area');
+                if (touchArea) {
+                    const touchAreaRect = touchArea.getBoundingClientRect();
+                    if (e.clientY < touchAreaRect.top && game.gameStarted && !game.gameOver) {
+                        // 点击在触摸控制区域上方，触发暂停
+                        pauseGame();
+                    }
+                }
+            });
+        } else {
+            document.addEventListener('touchstart', function (e) {
+                // 检查游戏是否已经暂停，如果是则不触发暂停
+                if (game.paused) {
+                    return;
+                }
+
+                if (e.target.id !== 'touch-area' && game.gameStarted && !game.gameOver) {
+                    pauseGame();
+                }
+            });
+        }
+
+        // 窗口大小变化
+        window.addEventListener('resize', function () {
+            if (camera && renderer) {
+                const aspect = window.innerWidth / window.innerHeight;
+                camera.aspect = aspect;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+        });
+
+        // 初始化游戏
+        initGame();
+    </script>
+</body>
+
+</html>

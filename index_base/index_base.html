@@ -1,0 +1,1272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D小球跑酷游戏</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #111;
+            font-family: Arial, sans-serif;
+        }
+
+        .ui {
+            position: absolute;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            z-index: 100;
+        }
+
+        #info {
+            top: 10px;
+            left: 10px;
+        }
+
+        #score {
+            top: 10px;
+            right: 10px;
+        }
+
+        #level {
+            top: 50px;
+            right: 10px;
+        }
+
+        #debug {
+            top: 90px;
+            right: 10px;
+        }
+
+        /* 触摸控制区域 */
+        #touch-area {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 150px;
+            background: rgba(255, 255, 255, 0.1);
+            z-index: 50;
+            display: none;
+        }
+
+        /* 响应式设计 */
+        @media screen and (max-width: 768px) {
+            .ui {
+                font-size: 12px;
+                padding: 8px;
+            }
+
+            #info {
+                top: 5px;
+                left: 5px;
+            }
+
+            #score {
+                top: 5px;
+                right: 5px;
+            }
+
+            #level {
+                top: 40px;
+                right: 5px;
+            }
+
+            #debug {
+                top: 75px;
+                right: 5px;
+            }
+
+            /* 显示触摸控制区域 */
+            #touch-area {
+                display: block;
+            }
+        }
+
+        /* 游戏结束和开始屏幕 */
+        #game-over,
+        #start-screen,
+        #level-complete,
+        #pause-menu {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 30px;
+            border-radius: 10px;
+            text-align: center;
+            z-index: 1000;
+            max-width: 90%;
+            width: 400px;
+        }
+
+        @media screen and (max-width: 480px) {
+
+            #game-over,
+            #start-screen,
+            #level-complete,
+            #pause-menu {
+                padding: 20px;
+                width: 90%;
+            }
+
+            h2 {
+                font-size: 20px;
+            }
+
+            p {
+                font-size: 14px;
+            }
+
+            button {
+                font-size: 14px;
+                padding: 8px 16px;
+            }
+        }
+
+        #game-over,
+        #start-screen,
+        #level-complete {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 30px;
+            border-radius: 10px;
+            text-align: center;
+            font-size: 18px;
+            z-index: 1000;
+        }
+
+        #game-over,
+        #level-complete {
+            display: none;
+        }
+
+        button {
+            margin: 10px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            color: white;
+        }
+
+        .btn-primary {
+            background: #3498db;
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+        }
+
+        .btn-success {
+            background: #4CAF50;
+        }
+
+        .rules {
+            text-align: left;
+            margin: 20px 0;
+            padding: 0 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="score" class="ui">
+        分数: 0
+    </div>
+    <div id="level" class="ui">
+        关卡: 1 / 目标: 50
+    </div>
+    <div id="debug" class="ui">
+        速度: 0.1 | 关卡: 1
+    </div>
+
+    <!-- 触摸控制区域 -->
+    <div id="touch-area"></div>
+
+    <div id="game-over">
+        <h2>游戏结束</h2>
+        <p>最终分数: <span id="final-score">0</span></p>
+        <p>最高关卡: <span id="final-level">1</span></p>
+        <button class="btn-success" onclick="restartGame(true)">重新开始</button>
+    </div>
+
+    <div id="pause-menu"
+        style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0, 0, 0, 0.9); color: white; padding: 30px; border-radius: 10px; text-align: center; z-index: 1000;">
+        <h2>游戏暂停</h2>
+        <div style="margin: 20px 0;">
+            <button class="btn-primary" onclick="resumeGame()"
+                style="margin: 10px; padding: 10px 20px; font-size: 16px;">继续游戏</button>
+            <button class="btn-success" onclick="restartGame(false)"
+                style="margin: 10px; padding: 10px 20px; font-size: 16px;">重新开始</button>
+        </div>
+    </div>
+
+    <div id="start-screen">
+        <h2>3D小球跑酷游戏</h2>
+        <div class="rules">
+            <h3>游戏规则：</h3>
+            <div id="rules-desktop">
+                <p>1. 使用 A/← 键向左移动</p>
+                <p>2. 使用 D/→ 键向右移动</p>
+                <p>3. 按空格键暂停游戏</p>
+                <p>4. 躲避红色障碍物</p>
+                <p>5. 收集黄色发光的积分</p>
+                <p>6. 达到目标分数升级关卡</p>
+                <p>7. 撞到障碍物游戏结束</p>
+            </div>
+            <div id="rules-mobile" style="display: none;">
+                <p>1. 在屏幕下方左右滑动控制小球</p>
+                <p>2. 点击屏幕上方任意位置暂停游戏</p>
+                <p>3. 躲避红色障碍物</p>
+                <p>4. 收集黄色发光的积分</p>
+                <p>5. 达到目标分数升级关卡</p>
+                <p>6. 撞到障碍物游戏结束</p>
+            </div>
+        </div>
+        <button class="btn-primary" onclick="startGame()">开始游戏</button>
+    </div>
+
+    <div id="level-complete">
+        <h2>关卡 <span id="completed-level">1</span> 完成！</h2>
+        <p>获得分数: <span id="completed-score">0</span></p>
+        <p>目标分数: <span id="completed-target">50</span></p>
+        <button class="btn-primary" onclick="nextLevel()">进入下一关</button>
+        <button class="btn-danger" onclick="restartGame(true)">重新开始</button>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js?v=3"></script>
+    <script>
+        // 全局变量
+        let animationId = null;
+        let lastTime = 0;
+        let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+        // 游戏配置
+        const config = {
+            speed: 0.1,
+            moveSpeed: 0.05,
+            roadWidth: 12,
+            roadLength: 200,
+            segments: 10,
+            maxDistance: 1000, // 基础最大距离
+            fixedTimeStep: 1 / 60 // 固定时间步长，60fps
+        };
+
+        // 关卡配置
+        const levels = [
+            { score: 100, speed: 0.25 },    // 第一关：100分
+            { score: 250, speed: 0.3 },     // 第二关：250分
+            { score: 450, speed: 0.35 },    // 第三关：450分
+            { score: 700, speed: 0.4 },     // 第四关：700分
+            { score: 1000, speed: 0.45 },   // 第五关：1000分
+            { score: 1350, speed: 0.5 },    // 第六关：1350分
+            { score: 1750, speed: 0.55 },   // 第七关：1750分
+            { score: 2200, speed: 0.6 },    // 第八关：2200分
+            { score: 2700, speed: 0.65 },   // 第九关：2700分
+            { score: -1, speed: 0.7 }       // 第十关：无限模式，-1表示无目标分数
+        ];
+
+        // 游戏状态
+        let game = {
+            level: 1,
+            score: 0,
+            gameOver: false,
+            gameStarted: false,
+            distance: 0,
+            paused: false
+        };
+
+        // Three.js 变量
+        let scene, camera, renderer, ball;
+        let roadSegments = [];
+        let obstacles = [];
+        let collectibles = [];
+        let keys = {};
+
+        // 初始化游戏
+        function initGame() {
+            // 停止旧的动画循环
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+
+            // 加载保存的游戏状态
+            loadGameState();
+            console.log('Loaded game state:', game);
+
+            // 设置当前关卡的速度
+            config.speed = levels[game.level - 1].speed;
+
+            // 根据游戏速度动态调整移动速度
+            // 移动速度与游戏速度成正比，确保移动速度能够跟上滚动速度
+            config.moveSpeed = Math.min(0.2, config.speed * 0.7);
+
+            // 随关卡增加增大最大滚动长度
+            // 关卡1: 1800 (约2分钟), 关卡5: 4000 (约3.5分钟)
+            // 非线性增长，后面的关卡增加更多时间
+            config.maxDistance = 1800 + (game.level - 1) * 200 + Math.pow(game.level - 1, 2) * 100;
+
+            // 重置游戏状态（如果是首次加载或重新开始）
+            if (!game.gameStarted) {
+                // 不重置分数，保留加载的分数
+                // if (game.level === 1) {
+                //     game.score = 0;
+                // }
+                game.gameOver = false;
+                game.distance = 0;
+                game.paused = false;
+            } else {
+                // 如果是加载保存的游戏状态，重置距离
+                game.distance = 0;
+                // 重置游戏开始状态，避免立即进入关卡完成
+                game.gameStarted = false;
+            }
+
+            // 清空数组
+            roadSegments = [];
+            obstacles = [];
+            collectibles = [];
+            keys = {};
+
+            // 清除旧场景
+            if (renderer) {
+                document.body.removeChild(renderer.domElement);
+                renderer.dispose();
+            }
+
+            // 创建场景
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a2e);
+
+            // 创建相机
+            const aspect = window.innerWidth / window.innerHeight;
+            const fov = isMobile ? 85 : 75; // 手机端使用更大的视场角
+            camera = new THREE.PerspectiveCamera(fov, aspect, 0.1, 1000);
+            camera.position.set(0, isMobile ? 6.4 : 5, isMobile ? 11.8 : 10);
+
+            // 创建渲染器
+            // 动态设置抗锯齿和像素比，提升移动端流畅度
+            let deviceMemoryGB = navigator.deviceMemory || 0;
+            let hardwareThreads = navigator.hardwareConcurrency || 4;
+            let memoryKnown = deviceMemoryGB > 0;
+            let mobilePixelRatioCap = 1.45;
+            let enableMobileAntialias = false;
+            if (isMobile) {
+                const dpr = window.devicePixelRatio || 1;
+                const shortEdge = Math.min(window.innerWidth, window.innerHeight);
+                const highEnd =
+                    (memoryKnown && deviceMemoryGB >= 6 && hardwareThreads >= 8) ||
+                    (!memoryKnown && hardwareThreads >= 10 && dpr >= 3);
+                const mediumEnd =
+                    (memoryKnown && deviceMemoryGB >= 4 && hardwareThreads >= 6) ||
+                    (!memoryKnown && hardwareThreads >= 8);
+                if (highEnd && dpr >= 2.2 && shortEdge >= 390) {
+                    mobilePixelRatioCap = 1.52;
+                    enableMobileAntialias = true;
+                } else if (mediumEnd) {
+                    mobilePixelRatioCap = 1.42;
+                    enableMobileAntialias = false;
+                } else {
+                    mobilePixelRatioCap = 1.32;
+                    enableMobileAntialias = false;
+                }
+            }
+            renderer = new THREE.WebGLRenderer({ antialias: !isMobile || enableMobileAntialias });
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? mobilePixelRatioCap : 2));
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // 添加灯光
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(0, 10, -5);
+            scene.add(directionalLight);
+
+            // 创建小球
+            createBall();
+
+            // 创建道路
+            createRoad();
+
+            // 更新UI
+            updateUI();
+
+            // 显示开始屏幕
+            document.getElementById('start-screen').style.display = 'block';
+            document.getElementById('game-over').style.display = 'none';
+            document.getElementById('level-complete').style.display = 'none';
+
+            // 开始动画
+            animate(performance.now());
+        }
+
+        // 创建小球
+        function createBall() {
+            const geometry = new THREE.SphereGeometry(0.5, 32, 32);
+            const material = new THREE.MeshStandardMaterial({
+                color: 0x3498db,
+                roughness: 0.3,
+                metalness: 0.7
+            });
+            ball = new THREE.Mesh(geometry, material);
+            ball.position.set(0, 0.5, 0);
+            scene.add(ball);
+        }
+
+        // 创建道路
+        function createRoad() {
+            const segmentLength = config.roadLength / config.segments;
+            const geometry = new THREE.PlaneGeometry(config.roadWidth, segmentLength);
+            const material = new THREE.MeshStandardMaterial({
+                color: 0x333333,
+                roughness: 0.8,
+                metalness: 0.2,
+                side: THREE.DoubleSide
+            });
+
+            for (let i = 0; i < config.segments; i++) {
+                const segment = new THREE.Mesh(geometry, material);
+                segment.rotation.x = -Math.PI / 2;
+                segment.position.set(0, 0, -i * segmentLength);
+                roadSegments.push(segment);
+                scene.add(segment);
+
+                // 生成障碍物和积分
+                generateObjects(-i * segmentLength, segmentLength);
+            }
+        }
+
+        // 生成障碍物和积分
+        function generateObjects(startZ, segmentLength) {
+            const columns = [-4.5, -1.5, 1.5, 4.5];
+            const availableColumns = [...columns];
+
+            // 根据关卡计算障碍物生成概率（关卡越高，概率越高）
+            const obstacleChance = Math.min(0.98, 0.7 + (game.level - 1) * 0.08);
+
+            // 每个路段生成1-2个障碍物
+            // 关卡3开始才增加障碍物数量，避免难度陡升
+            const obstacleCount = game.level <= 2 ? 1 : (game.level <= 3 ? (Math.random() > 0.5 ? 2 : 1) : (Math.random() > 0.3 ? 2 : 1));
+
+            // 计算障碍物的均匀分布位置（减小间距，增加密度）
+            const spacing = segmentLength / (obstacleCount + 2);
+
+            for (let i = 0; i < obstacleCount && availableColumns.length > 0; i++) {
+                if (Math.random() < obstacleChance) {
+                    const isWide = Math.random() > 0.5 && availableColumns.length >= 2;
+
+                    if (isWide) {
+                        const index = Math.floor(Math.random() * (availableColumns.length - 1));
+                        const x1 = availableColumns[index];
+                        const x2 = availableColumns[index + 1];
+                        const x = (x1 + x2) / 2;
+                        availableColumns.splice(index, 2);
+
+                        // 均匀分布的Z位置，添加随机偏移，避免过于整齐
+                        const z = startZ - (i + 1) * spacing + (Math.random() - 0.5) * (spacing * 0.5);
+                        // 确保障碍物不会生成在小球初始位置附近，距离更远
+                        if (z < -20) {
+                            const obstacle = createObstacle(true);
+                            obstacle.position.set(x, 1, z);
+                            obstacle.scale.set(4, 2, 2);
+                            obstacles.push(obstacle);
+                            scene.add(obstacle);
+                        }
+                    } else {
+                        const index = Math.floor(Math.random() * availableColumns.length);
+                        const x = availableColumns[index];
+                        availableColumns.splice(index, 1);
+
+                        // 均匀分布的Z位置，添加随机偏移，避免过于整齐
+                        const z = startZ - (i + 1) * spacing + (Math.random() - 0.5) * (spacing * 0.5);
+                        // 确保障碍物不会生成在小球初始位置附近，距离更远
+                        if (z < -20) {
+                            const obstacle = createObstacle(false);
+                            obstacle.position.set(x, 1, z);
+                            obstacle.scale.set(2, 2, 2);
+                            obstacles.push(obstacle);
+                            scene.add(obstacle);
+                        }
+                    }
+                }
+            }
+
+            // 生成积分（增加积分生成概率）
+            // 关卡越高，积分生成概率越高
+            const collectibleChance = Math.min(0.98, 0.9 + (game.level - 1) * 0.02);
+            if (Math.random() < collectibleChance) { // 随关卡增加的积分生成概率
+                // 选择积分的X位置
+                let x;
+                if (availableColumns.length > 0) {
+                    // 从剩余列中随机选择
+                    const index = Math.floor(Math.random() * availableColumns.length);
+                    x = availableColumns[index];
+                } else {
+                    // 如果没有剩余列，从所有列中随机选择
+                    const index = Math.floor(Math.random() * columns.length);
+                    x = columns[index];
+                }
+
+                // 积分放在路段中间，添加随机偏移
+                const z = startZ - segmentLength / 2 + (Math.random() - 0.5) * 3;
+
+                // 确保积分不会生成在小球初始位置附近，距离更远
+                if (z < -15) {
+                    // 检查积分位置是否与障碍物重叠（减小安全距离，增加积分生成机会）
+                    let isOverlap = false;
+                    obstacles.forEach(obstacle => {
+                        const obsZ = obstacle.position.z;
+                        if (Math.abs(z - obsZ) < 1.5) { // 1.5 是安全距离，比之前的2更小
+                            isOverlap = true;
+                        }
+                    });
+
+                    if (!isOverlap) {
+                        const collectible = createCollectible();
+                        collectible.position.set(x, 1, z);
+                        collectible.scale.set(2, 2, 2);
+                        collectibles.push(collectible);
+                        scene.add(collectible);
+                    }
+                }
+            }
+
+            // 第四关及以上，额外增加积分生成机会
+            if (game.level >= 4 && Math.random() < 0.5) { // 50% 概率额外生成一个积分
+                // 选择积分的X位置（与之前不同的列）
+                let x;
+                const usedColumns = new Set();
+                // 收集已使用的列
+                obstacles.forEach(obstacle => {
+                    usedColumns.add(obstacle.position.x);
+                });
+                // 收集可用的列
+                const possibleColumns = columns.filter(col => !usedColumns.has(col));
+
+                if (possibleColumns.length > 0) {
+                    const index = Math.floor(Math.random() * possibleColumns.length);
+                    x = possibleColumns[index];
+                } else {
+                    const index = Math.floor(Math.random() * columns.length);
+                    x = columns[index];
+                }
+
+                // 积分放在路段中，与第一个积分位置不同
+                const z = startZ - segmentLength / 2 + (Math.random() - 0.5) * 6;
+
+                // 确保积分不会生成在小球初始位置附近，距离更远
+                if (z < -15) {
+                    // 检查积分位置是否与障碍物重叠
+                    let isOverlap = false;
+                    obstacles.forEach(obstacle => {
+                        const obsZ = obstacle.position.z;
+                        if (Math.abs(z - obsZ) < 1.5) {
+                            isOverlap = true;
+                        }
+                    });
+
+                    if (!isOverlap) {
+                        const collectible = createCollectible();
+                        collectible.position.set(x, 1, z);
+                        collectible.scale.set(2, 2, 2);
+                        collectibles.push(collectible);
+                        scene.add(collectible);
+                    }
+                }
+            }
+        }
+
+        // 创建障碍物
+        function createObstacle(isWide) {
+            // 根据宽度选择障碍物类型
+            if (isWide) {
+                // 宽障碍物：创建可穿过的拱门（有挑战性的大小）
+                const types = [
+                    { geometry: new THREE.BoxGeometry(1, 1, 1), color: 0xe74c3c, rotation: null, isArch: false },
+                    { geometry: new THREE.CylinderGeometry(0.5, 0.5, 1, 32), color: 0xe67e22, rotation: null, isArch: false },
+                    { geometry: new THREE.TorusGeometry(0.6, 0.12, 16, 100), color: 0x9b59b6, rotation: { x: 0, y: 0, z: 0 }, isArch: true }
+                ];
+                const type = types[Math.floor(Math.random() * types.length)];
+                const material = new THREE.MeshStandardMaterial({ color: type.color });
+                const mesh = new THREE.Mesh(type.geometry, material);
+                mesh.userData.isArch = type.isArch;
+                if (type.rotation) {
+                    mesh.rotation.set(type.rotation.x, type.rotation.y, type.rotation.z);
+                }
+                return mesh;
+            } else {
+                // 窄障碍物：创建不可穿过的小圆环（底部有障碍）或方块/圆柱
+                const types = [
+                    { geometry: new THREE.BoxGeometry(1, 1, 1), color: 0xe74c3c, rotation: null },
+                    { geometry: new THREE.CylinderGeometry(0.5, 0.5, 1, 32), color: 0xe67e22, rotation: null },
+                    { geometry: new THREE.TorusGeometry(0.5, 0.2, 16, 100), color: 0x9b59b6, rotation: { x: 0, y: 0, z: 0 } }
+                ];
+                const type = types[Math.floor(Math.random() * types.length)];
+                const material = new THREE.MeshStandardMaterial({ color: type.color });
+                const mesh = new THREE.Mesh(type.geometry, material);
+                mesh.userData.isArch = false;
+                if (type.rotation) {
+                    mesh.rotation.set(type.rotation.x, type.rotation.y, type.rotation.z);
+                }
+                return mesh;
+            }
+        }
+
+        // 创建积分
+        function createCollectible() {
+            const geometry = new THREE.SphereGeometry(0.3, 32, 32);
+            const material = new THREE.MeshStandardMaterial({
+                color: 0xf1c40f,
+                emissive: 0xf1c40f,
+                emissiveIntensity: 0.5
+            });
+            return new THREE.Mesh(geometry, material);
+        }
+
+        // 处理移动
+        function handleMovement() {
+            if (game.gameOver) return;
+
+            let moveX = 0;
+            if (keys['a'] || keys['arrowleft']) moveX -= config.moveSpeed;
+            if (keys['d'] || keys['arrowright']) moveX += config.moveSpeed;
+
+            ball.position.x += moveX;
+
+            // 边界限制
+            const halfRoad = config.roadWidth / 2 - 0.5;
+            ball.position.x = Math.max(-halfRoad, Math.min(halfRoad, ball.position.x));
+        }
+
+        // 更新道路
+        function updateRoad() {
+            if (game.gameOver) return;
+
+            game.distance += config.speed;
+
+            // 检查最大距离
+            if (game.distance >= config.maxDistance) {
+                endGame();
+                return;
+            }
+
+            // 每次更新都检查是否达到关卡目标分数
+            checkLevelUp();
+
+            const segmentLength = config.roadLength / config.segments;
+
+            // 移动路段
+            roadSegments.forEach(segment => {
+                segment.position.z += config.speed;
+                if (segment.position.z > segmentLength) {
+                    scene.remove(segment);
+                    roadSegments.shift();
+
+                    // 创建新路段
+                    const geometry = new THREE.PlaneGeometry(config.roadWidth, segmentLength);
+                    const material = new THREE.MeshStandardMaterial({
+                        color: 0x333333,
+                        roughness: 0.8,
+                        metalness: 0.2,
+                        side: THREE.DoubleSide
+                    });
+
+                    const newSegment = new THREE.Mesh(geometry, material);
+                    newSegment.rotation.x = -Math.PI / 2;
+                    newSegment.position.set(0, 0, roadSegments[roadSegments.length - 1].position.z - segmentLength);
+                    roadSegments.push(newSegment);
+                    scene.add(newSegment);
+
+                    // 生成障碍物和积分
+                    generateObjects(newSegment.position.z, segmentLength);
+                }
+            });
+
+            // 移动障碍物
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                obstacles[i].position.z += config.speed;
+                if (obstacles[i].position.z > 10) {
+                    scene.remove(obstacles[i]);
+                    obstacles.splice(i, 1);
+                }
+            }
+
+            // 移动积分
+            for (let i = collectibles.length - 1; i >= 0; i--) {
+                collectibles[i].position.z += config.speed;
+                if (collectibles[i].position.z > 10) {
+                    scene.remove(collectibles[i]);
+                    collectibles.splice(i, 1);
+                }
+            }
+        }
+
+        // 碰撞检测
+        function checkCollisions() {
+            if (game.gameOver) return;
+
+            // 小球的边界球半径
+            const ballRadius = 0.5;
+            const ballPosition = ball.position;
+
+            // 检测障碍物碰撞 - 严格判定，碰到即算
+            let collisionDetected = false;
+            obstacles.forEach(obstacle => {
+                const scale = obstacle.scale;
+                const position = obstacle.position;
+
+                // 根据几何体类型使用不同的碰撞检测
+                if (obstacle.geometry instanceof THREE.BoxGeometry) {
+                    // 方块：使用边界框检测
+                    const halfWidth = 0.5 * scale.x;
+                    const halfHeight = 0.5 * scale.y;
+                    const halfDepth = 0.5 * scale.z;
+
+                    const minX = position.x - halfWidth;
+                    const maxX = position.x + halfWidth;
+                    const minY = position.y - halfHeight;
+                    const maxY = position.y + halfHeight;
+                    const minZ = position.z - halfDepth;
+                    const maxZ = position.z + halfDepth;
+
+                    const closestX = Math.max(minX, Math.min(ballPosition.x, maxX));
+                    const closestY = Math.max(minY, Math.min(ballPosition.y, maxY));
+                    const closestZ = Math.max(minZ, Math.min(ballPosition.z, maxZ));
+
+                    const distance = Math.sqrt(
+                        Math.pow(ballPosition.x - closestX, 2) +
+                        Math.pow(ballPosition.y - closestY, 2) +
+                        Math.pow(ballPosition.z - closestZ, 2)
+                    );
+
+                    if (distance < ballRadius) {
+                        collisionDetected = true;
+                    }
+                } else if (obstacle.geometry instanceof THREE.CylinderGeometry) {
+                    // 圆柱体：使用圆柱体碰撞检测
+                    const radius = 0.5 * Math.max(scale.x, scale.z); // 取X和Z方向的最大缩放
+                    const halfHeight = 0.5 * scale.y;
+
+                    // 计算水平距离
+                    const dx = ballPosition.x - position.x;
+                    const dz = ballPosition.z - position.z;
+                    const horizontalDistance = Math.sqrt(dx * dx + dz * dz);
+
+                    // 计算垂直距离
+                    const dy = Math.abs(ballPosition.y - position.y);
+
+                    // 更精确的碰撞检测：球与圆柱表面的距离
+                    let surfaceDistance;
+                    if (horizontalDistance < radius) {
+                        // 球在圆柱正上方或正下方
+                        surfaceDistance = Math.abs(dy) - halfHeight;
+                    } else {
+                        // 球在圆柱侧面
+                        surfaceDistance = Math.sqrt(
+                            Math.pow(horizontalDistance - radius, 2) +
+                            Math.pow(Math.max(0, dy - halfHeight), 2)
+                        );
+                    }
+
+                    // 碰撞判定：小球表面接触到圆柱表面
+                    if (surfaceDistance < ballRadius) {
+                        collisionDetected = true;
+                    }
+                } else if (obstacle.geometry instanceof THREE.TorusGeometry) {
+                    // 圆环体碰撞检测
+                    // 圆环平行于Z轴放置（默认朝向，垂直于XY平面）
+
+                    const isArch = obstacle.userData.isArch;
+
+                    if (isArch) {
+                        // 拱门：可穿过，只有管道部分有碰撞
+                        // 圆环半径0.6，管道半径0.12，缩放4x2x2
+                        const torusRadius = 0.6 * Math.max(scale.x, scale.z);  // 取X和Z方向的最大缩放
+                        const tubeRadius = 0.12 * Math.max(scale.x, scale.z);  // 管道半径
+
+                        // 计算小球到圆环中心在XY平面的距离
+                        const dx = ballPosition.x - position.x;
+                        const dy = ballPosition.y - position.y;
+                        const distToCenter = Math.sqrt(dx * dx + dy * dy);
+
+                        // 计算小球相对于圆环的Z轴距离
+                        const dz = Math.abs(ballPosition.z - position.z);
+
+                        // 计算小球到圆环管道中心的距离
+                        const distToTubeCenter = Math.sqrt(
+                            Math.pow(distToCenter - torusRadius, 2) +
+                            dz * dz
+                        );
+
+                        // 碰撞判定：小球表面接触到管道表面
+                        if (distToTubeCenter < tubeRadius + ballRadius) {
+                            collisionDetected = true;
+                        }
+                    } else {
+                        // 小圆环：不可穿过，使用精确的管道碰撞检测
+                        // 小圆环尺寸：圆环半径0.5，管道半径0.2，缩放2x2x2
+                        const torusRadius = 0.5 * Math.max(scale.x, scale.z);  // 取X和Z方向的最大缩放
+                        const tubeRadius = 0.2 * Math.max(scale.x, scale.z);   // 管道半径
+
+                        // 计算小球到圆环中心在XY平面的距离
+                        const dx = ballPosition.x - position.x;
+                        const dy = ballPosition.y - position.y;
+                        const distToCenter = Math.sqrt(dx * dx + dy * dy);
+
+                        // 计算小球相对于圆环的Z轴距离
+                        const dz = Math.abs(ballPosition.z - position.z);
+
+                        // 计算小球到圆环管道中心的距离
+                        const distToTubeCenter = Math.sqrt(
+                            Math.pow(distToCenter - torusRadius, 2) +
+                            dz * dz
+                        );
+
+                        // 碰撞判定：小球表面接触到管道表面
+                        if (distToTubeCenter < tubeRadius + ballRadius) {
+                            collisionDetected = true;
+                        }
+                    }
+                } else {
+                    // 默认使用边界框
+                    const halfWidth = 0.5 * scale.x;
+                    const halfHeight = 0.5 * scale.y;
+                    const halfDepth = 0.5 * scale.z;
+
+                    const minX = position.x - halfWidth;
+                    const maxX = position.x + halfWidth;
+                    const minY = position.y - halfHeight;
+                    const maxY = position.y + halfHeight;
+                    const minZ = position.z - halfDepth;
+                    const maxZ = position.z + halfDepth;
+
+                    const closestX = Math.max(minX, Math.min(ballPosition.x, maxX));
+                    const closestY = Math.max(minY, Math.min(ballPosition.y, maxY));
+                    const closestZ = Math.max(minZ, Math.min(ballPosition.z, maxZ));
+
+                    const distance = Math.sqrt(
+                        Math.pow(ballPosition.x - closestX, 2) +
+                        Math.pow(ballPosition.y - closestY, 2) +
+                        Math.pow(ballPosition.z - closestZ, 2)
+                    );
+
+                    if (distance < ballRadius) {
+                        collisionDetected = true;
+                    }
+                }
+            });
+
+            if (collisionDetected) {
+                endGame();
+            }
+
+            // 检测积分收集 - 严格判定，碰到即算
+            for (let i = collectibles.length - 1; i >= 0; i--) {
+                const collectible = collectibles[i];
+                const scale = collectible.scale;
+                const position = collectible.position;
+
+                // 积分是球体，计算球体边界
+                const collectibleRadius = 0.3 * scale.x;
+
+                // 计算两个球体中心距离
+                const distance = ballPosition.distanceTo(position);
+
+                // 严格判定：小球半径 + 积分球半径 = 碰撞
+                // 只要两个球体表面接触即算收集
+                if (distance < ballRadius + collectibleRadius) {
+                    game.score += 10;  // 改回10分
+                    document.getElementById('score').textContent = `分数: ${game.score}`;
+                    scene.remove(collectible);
+                    collectibles.splice(i, 1);
+
+                    // 检查升级
+                    checkLevelUp();
+                }
+            }
+        }
+
+        // 检查升级
+        function checkLevelUp() {
+            // 第十关是无限模式，不检查积分
+            if (game.level === levels.length) {
+                return;
+            }
+
+            // 确保游戏未结束且分数达到目标
+            if (game.score >= levels[game.level - 1].score && !game.gameOver) {
+                console.log('Level complete:', game.level, 'Score:', game.score, 'Target:', levels[game.level - 1].score);
+
+                // 暂停游戏
+                game.gameStarted = false;
+
+                // 保存游戏状态（关卡完成）
+                saveGameState();
+
+                // 强制显示关卡完成提示
+                const levelCompleteEl = document.getElementById('level-complete');
+                const gameOverEl = document.getElementById('game-over');
+
+                if (levelCompleteEl) {
+                    levelCompleteEl.style.display = 'block';
+                    levelCompleteEl.style.zIndex = '9999';
+                }
+
+                if (gameOverEl) {
+                    gameOverEl.style.display = 'none';
+                }
+
+                // 更新提示内容
+                const completedLevelEl = document.getElementById('completed-level');
+                const completedScoreEl = document.getElementById('completed-score');
+                const completedTargetEl = document.getElementById('completed-target');
+
+                if (completedLevelEl) completedLevelEl.textContent = game.level;
+                if (completedScoreEl) completedScoreEl.textContent = game.score;
+                if (completedTargetEl) completedTargetEl.textContent = levels[game.level - 1].score;
+
+                // 如果是最后一关，修改提示文字
+                const h2El = document.querySelector('#level-complete h2');
+                if (h2El) {
+                    if (game.level >= levels.length - 1) { // 第九关完成，进入第十关
+                        h2El.textContent = '恭喜通关第九关！';
+                    } else {
+                        h2El.textContent = `关卡 ${game.level} 完成！`;
+                    }
+                }
+
+                // 控制按钮显示
+                const buttonEl = document.querySelector('#level-complete button');
+                if (buttonEl) {
+                    if (game.level >= levels.length - 1) { // 第九关完成，进入第十关
+                        buttonEl.textContent = '进入无限模式';
+                        buttonEl.style.display = 'inline-block';
+                    } else {
+                        buttonEl.textContent = '进入下一关';
+                        buttonEl.style.display = 'inline-block';
+                    }
+                }
+            }
+        }
+
+        // 开始游戏
+        function startGame() {
+            document.getElementById('start-screen').style.display = 'none';
+            game.gameStarted = true;
+        }
+
+        // 进入下一关
+        function nextLevel() {
+            document.getElementById('level-complete').style.display = 'none';
+            game.level++;
+            if (game.level > levels.length) game.level = levels.length;
+            // 重置分数，因为进入新关卡
+            game.score = 0;
+            // 保存游戏状态
+            saveGameState();
+            initGame();
+            game.gameStarted = true;
+            document.getElementById('start-screen').style.display = 'none';
+        }
+
+        // 游戏结束
+        function endGame() {
+            game.gameOver = true;
+            document.getElementById('final-score').textContent = game.score;
+            document.getElementById('final-level').textContent = game.level;
+
+            // 为第十关添加祝贺词
+            const gameOverEl = document.getElementById('game-over');
+            const h2El = gameOverEl.querySelector('h2');
+
+            if (game.level === levels.length) {
+                h2El.textContent = '恭喜完成挑战！';
+            } else {
+                h2El.textContent = '游戏结束';
+            }
+
+            gameOverEl.style.display = 'block';
+            // 游戏结束时不保存游戏状态，这样重新进入时会重新开始
+            localStorage.removeItem('gameState');
+            console.log('Game over, local storage cleared');
+        }
+
+        // 重新开始
+        function restartGame(fromGameOver = false) {
+            document.getElementById('game-over').style.display = 'none';
+            document.getElementById('level-complete').style.display = 'none';
+            document.getElementById('pause-menu').style.display = 'none';
+            if (fromGameOver) {
+                // 游戏结束后重新开始，从第一关开始
+                game.level = 1;
+                game.score = 0;
+            } else {
+                // 暂停后重新开始，保持当前关卡，清零分数
+                game.score = 0;
+            }
+            game.gameStarted = false;
+            game.gameOver = false;
+            game.distance = 0;
+            game.paused = false;
+            // 清除保存的游戏状态
+            localStorage.removeItem('gameState');
+            console.log('Game restarted, local storage cleared');
+            initGame();
+        }
+
+        // 加载游戏状态
+        function loadGameState() {
+            try {
+                const savedState = localStorage.getItem('gameState');
+                if (savedState) {
+                    const state = JSON.parse(savedState);
+                    // 只加载关卡和分数，不加载其他状态
+                    game.level = state.level || 1;
+                    game.score = state.score || 0;
+                    // 重置其他状态
+                    game.gameStarted = false;
+                    game.gameOver = false;
+                    game.distance = 0;
+                    game.paused = false;
+
+                    // 检查是否已经达到目标分数，如果是，自动进入下一关
+                    if (game.level < levels.length && game.score >= levels[game.level - 1].score) {
+                        console.log('Auto advancing to next level:', game.level + 1);
+                        game.level++;
+                        game.score = 0;
+                        // 保存更新后的游戏状态
+                        saveGameState();
+                    }
+
+                    console.log('Successfully loaded game state:', { level: game.level, score: game.score });
+                } else {
+                    console.log('No saved game state found');
+                }
+            } catch (error) {
+                console.error('Failed to load game state:', error);
+                // 如果加载失败，重置为默认状态
+                game.level = 1;
+                game.score = 0;
+                game.gameStarted = false;
+                game.gameOver = false;
+                game.distance = 0;
+                game.paused = false;
+            }
+        }
+
+        // 保存游戏状态
+        function saveGameState() {
+            const state = {
+                level: game.level,
+                score: game.score,
+                gameStarted: game.gameStarted,
+                gameOver: game.gameOver,
+                paused: game.paused
+            };
+            localStorage.setItem('gameState', JSON.stringify(state));
+            console.log('Game state saved:', state);
+        }
+
+        // 暂停/继续游戏
+        function togglePause() {
+            if (game.gameOver || !game.gameStarted) {
+                return;
+            }
+
+            game.paused = !game.paused;
+            const pauseMenu = document.getElementById('pause-menu');
+
+            if (game.paused) {
+                pauseMenu.style.display = 'block';
+                // 暂停时保存游戏状态（包括积分）
+                saveGameState();
+            } else {
+                pauseMenu.style.display = 'none';
+            }
+        }
+
+        // 继续游戏
+        function resumeGame() {
+            game.paused = false;
+            document.getElementById('pause-menu').style.display = 'none';
+        }
+
+        // 更新UI
+        function updateUI() {
+            document.getElementById('score').textContent = `分数: ${game.score}`;
+            if (game.level === levels.length) {
+                document.getElementById('level').textContent = `关卡: ${game.level} (无限模式)`;
+            } else {
+                document.getElementById('level').textContent = `关卡: ${game.level} / 目标: ${levels[game.level - 1].score}`;
+            }
+            document.getElementById('debug').textContent = `速度: ${config.speed} | 关卡: ${game.level}`;
+        }
+
+        // 动画循环
+        function animate(currentTime) {
+            animationId = requestAnimationFrame(animate);
+
+            // 计算时间差，确保不同设备上速度一致
+            if (!lastTime) lastTime = currentTime;
+            const deltaTime = (currentTime - lastTime) / 1000;
+            lastTime = currentTime;
+
+            // 限制时间差，防止大延迟导致的跳跃
+            const dt = Math.min(deltaTime, 0.1);
+
+            if (game.gameStarted && !game.gameOver && !game.paused && ball) {
+                // 使用固定时间步长更新
+                const fixedSpeed = config.speed * (dt / config.fixedTimeStep);
+                const fixedMoveSpeed = config.moveSpeed * (dt / config.fixedTimeStep);
+
+                // 保存原始速度
+                const originalSpeed = config.speed;
+                const originalMoveSpeed = config.moveSpeed;
+
+                // 使用固定速度更新
+                config.speed = fixedSpeed;
+                config.moveSpeed = fixedMoveSpeed;
+
+                handleMovement();
+                updateRoad();
+                checkCollisions();
+
+                // 恢复原始速度
+                config.speed = originalSpeed;
+                config.moveSpeed = originalMoveSpeed;
+
+                // 更新相机
+                camera.position.z = ball.position.z + 10;
+                camera.lookAt(0, 0.5, ball.position.z + 5);
+            }
+
+            if (renderer && scene && camera) {
+                renderer.render(scene, camera);
+            }
+        }
+
+        // 事件监听
+        window.addEventListener('keydown', (e) => {
+            keys[e.key.toLowerCase()] = true;
+            keys[e.code.toLowerCase()] = true;
+
+            // 按空格键暂停游戏
+            if (e.code === 'Space') {
+                e.preventDefault(); // 防止空格键默认行为
+                togglePause();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            keys[e.key.toLowerCase()] = false;
+            keys[e.code.toLowerCase()] = false;
+        });
+
+        // 触摸事件监听
+    let touchStartX = 0;
+    let touchLastX = 0;
+
+        // 根据设备类型显示不同的游戏规则
+        if (isMobile) {
+            document.getElementById('rules-desktop').style.display = 'none';
+            document.getElementById('rules-mobile').style.display = 'block';
+
+            // 在移动端添加点击暂停功能
+            document.addEventListener('click', (e) => {
+                // 检查点击的是否是按钮元素，如果是则不触发暂停
+                if (e.target.tagName === 'BUTTON' || e.target.closest('.btn-primary') || e.target.closest('.btn-secondary')) {
+                    return;
+                }
+
+                // 检查点击位置是否在触摸控制区域外
+                const touchArea = document.getElementById('touch-area');
+                if (touchArea) {
+                    const touchAreaRect = touchArea.getBoundingClientRect();
+                    if (e.clientY < touchAreaRect.top) {
+                        // 点击在触摸控制区域上方，触发暂停
+                        togglePause();
+                    }
+                }
+            });
+        } else {
+            document.getElementById('rules-desktop').style.display = 'block';
+            document.getElementById('rules-mobile').style.display = 'none';
+        }
+
+        document.getElementById('touch-area').addEventListener('touchstart', (e) => {
+            touchStartX = e.touches[0].clientX;
+            touchLastX = touchStartX;
+        });
+
+        document.getElementById('touch-area').addEventListener('touchmove', (e) => {
+            e.preventDefault(); // 防止页面滚动
+            const touchX = e.touches[0].clientX;
+
+            if (isMobile && game.gameStarted && !game.gameOver && !game.paused && ball) {
+                // 增量滑动控制，防止瞬移
+                const deltaX = touchX - touchLastX;
+                touchLastX = touchX;
+                const movementScale = (config.roadWidth / window.innerWidth) * 1.15;
+                ball.position.x += deltaX * movementScale;
+                // 限制小球移动范围
+                const halfRoad = config.roadWidth / 2 - 0.5;
+                ball.position.x = Math.max(-halfRoad, Math.min(halfRoad, ball.position.x));
+            } else {
+                // 计算滑动距离
+                const deltaX = touchX - touchStartX;
+                // 根据滑动距离模拟按键
+                if (deltaX > 20) {
+                    // 向右滑动
+                    keys['d'] = true;
+                    keys['arrowright'] = true;
+                } else if (deltaX < -20) {
+                    // 向左滑动
+                    keys['a'] = true;
+                    keys['arrowleft'] = true;
+                }
+            }
+        });
+
+        document.getElementById('touch-area').addEventListener('touchend', (e) => {
+            // 重置按键状态
+            keys['a'] = false;
+            keys['d'] = false;
+            keys['arrowleft'] = false;
+            keys['arrowright'] = false;
+        });
+
+        window.addEventListener('resize', () => {
+            if (camera && renderer) {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+        });
+
+        // 启动游戏
+        initGame();
+    </script>
+</body>
+
+</html>
