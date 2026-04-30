@@ -37,6 +37,28 @@
             z-index: 100;
         }
 
+        /* 悬浮概率标签（覆盖在画面之上） */
+        .prob-label {
+            position: absolute;
+            min-width: 44px;
+            padding: 0;
+            border-radius: 0;
+            font-size: 18px;
+            font-weight: 800;
+            text-align: center;
+            pointer-events: none;
+            z-index: 9999;
+            transform: translate(-50%, -50%);
+            background: transparent;
+            box-shadow: none;
+            white-space: nowrap;
+            transition: opacity 160ms linear;
+        }
+        .prob-label--red {
+            color: #ff7b7b;
+            text-shadow: 0 0 8px rgba(255, 105, 105, 0.95), 0 0 16px rgba(255, 105, 105, 0.45);
+        }
+
         #info {
             top: 10px;
             left: 10px;
@@ -644,6 +666,7 @@
         let modelLoadingTimer = null;
         let modelLoadingVisible = false;
         let reviveChances = 0;
+        let reviveRespawnState = null;
         let currentLevelCollectibleSpawned = 0;
         let currentLevelCollectibleCollected = 0;
     let currentLevelCollectibleMissed = 0;
@@ -651,6 +674,9 @@
         const perfectLevelsAchieved = new Set();
         const blueCollectibleNormalRatio = 20;
         const blueCollectibleSpawnProbability = 1 / (blueCollectibleNormalRatio + 1);
+        // 红色积分：出现概率与蓝色一致，包含死亡概率选项
+        const redCollectibleSpawnProbability = blueCollectibleSpawnProbability;
+        const redDeathProbabilityOptions = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]; // 对应 5%,10%,20%,30%,40%,50%
         const sprintDistanceSeconds = 12;
         const sprintBoostMultiplier = 2;
         const sprintMoveSpeedMultiplier = 1.5;
@@ -2151,7 +2177,14 @@
             const collectibleMinRowGap = 4.2;
             const collectibleNearRowGap = 6.2;
             const collectibleMinXGapWhenNearRow = 2.2;
-            const rollCollectibleType = () => Math.random() < blueCollectibleSpawnProbability ? 'blue' : 'normal';
+            const rollCollectibleType = () => {
+                const r = Math.random();
+                const redP = redCollectibleSpawnProbability;
+                const blueP = blueCollectibleSpawnProbability;
+                if (r < redP) return 'red';
+                if (r < redP + blueP) return 'blue';
+                return 'normal';
+            };
 
             const canPlaceCollectibleAt = (x, z, { allowObstacleOverlap = false } = {}) => {
                 if (z >= -15) return false;
@@ -2206,6 +2239,24 @@
                 collectible.userData.collected = false;
                 collectible.userData.collectibleType = collectibleType;
                 collectible.userData.scoreValue = 10;
+                // 若为红色积分，随机分配死亡概率与对应分值，并创建悬浮概率标签
+                if (collectibleType === 'red') {
+                    const prob = redDeathProbabilityOptions[Math.floor(Math.random() * redDeathProbabilityOptions.length)];
+                    collectible.userData.deathProbability = prob; // 例如 0.05 表示 5%
+                    // 分值按百分比映射：5% -> 50, 10% -> 100, ... (即 prob * 1000)
+                    collectible.userData.scoreValue = Math.round(prob * 1000);
+                    try {
+                        const label = document.createElement('div');
+                        label.className = 'prob-label prob-label--red';
+                        label.textContent = `${Math.round(prob * 100)}%`;
+                        label.style.position = 'absolute';
+                        label.style.pointerEvents = 'none';
+                        document.body.appendChild(label);
+                        collectible.userData.probLabelEl = label;
+                    } catch (e) {
+                        // ignore DOM creation errors in non-browser contexts
+                    }
+                }
                 collectible.position.set(x, collectible.userData.hiddenY, z);
                 collectible.scale.set(baseScale, baseScale, baseScale);
                 collectibles.push(collectible);
@@ -2446,6 +2497,7 @@
         function createCollectible(collectibleType = 'normal') {
             const star = new THREE.Group();
             const isBlueCollectible = collectibleType === 'blue';
+            const isRedCollectible = collectibleType === 'red';
             const collectiblePalette = isBlueCollectible
                 ? {
                     rayColor: 0xddfbff,
@@ -2454,13 +2506,22 @@
                     centerEmissive: 0x60dfff,
                     sparkleColor: 0x8cecff
                 }
-                : {
-                    rayColor: 0xffffff,
-                    rayEmissive: 0xfff4d7,
-                    centerColor: 0xffffff,
-                    centerEmissive: 0xffedb0,
-                    sparkleColor: 0xffffff
-                };
+                : (isRedCollectible
+                    ? {
+                        rayColor: 0xffc8c8,
+                        rayEmissive: 0xff6b6b,
+                        centerColor: 0xffe6e6,
+                        centerEmissive: 0xff8a8a,
+                        sparkleColor: 0xffc2c2
+                    }
+                    : {
+                        rayColor: 0xffffff,
+                        rayEmissive: 0xfff4d7,
+                        centerColor: 0xffffff,
+                        centerEmissive: 0xffedb0,
+                        sparkleColor: 0xffffff
+                    }
+                );
 
             const createPointedRayGeometry = (length, width, depth) => {
                 const shape = new THREE.Shape();
@@ -2497,7 +2558,7 @@
             const rayMaterial = new THREE.MeshStandardMaterial({
                 color: collectiblePalette.rayColor,
                 emissive: collectiblePalette.rayEmissive,
-                emissiveIntensity: isBlueCollectible ? 1.15 : 1.2,
+                emissiveIntensity: isBlueCollectible ? 1.15 : (isRedCollectible ? 1.25 : 1.2),
                 roughness: 0.12,
                 metalness: 0.22,
                 transparent: true,
@@ -2524,7 +2585,7 @@
                 new THREE.MeshStandardMaterial({
                     color: collectiblePalette.centerColor,
                     emissive: collectiblePalette.centerEmissive,
-                    emissiveIntensity: isBlueCollectible ? 1.05 : 0.95,
+                    emissiveIntensity: isBlueCollectible ? 1.05 : (isRedCollectible ? 1.1 : 0.95),
                     transparent: true,
                     opacity: 0.9
                 })
@@ -2571,8 +2632,9 @@
         function spawnCollectibleBurst(position, collectibleType = 'normal') {
             const burst = new THREE.Group();
             const isBlueCollectible = collectibleType === 'blue';
-            const burstColor = isBlueCollectible ? 0xd9faff : 0xfff0ad;
-            const burstEmissive = isBlueCollectible ? 0x58dcff : 0xffc65b;
+            const isRedCollectible = collectibleType === 'red';
+            const burstColor = isBlueCollectible ? 0xd9faff : (isRedCollectible ? 0xffd6d6 : 0xfff0ad);
+            const burstEmissive = isBlueCollectible ? 0x58dcff : (isRedCollectible ? 0xff6b6b : 0xffc65b);
             const count = isMobile ? 7 : 10;
             for (let i = 0; i < count; i++) {
                 const ray = new THREE.Mesh(
@@ -2797,11 +2859,31 @@
                             node.material.opacity = appearProgress * 0.98;
                         }
                     });
+                    // 更新悬浮概率标签位置（若存在）
+                    try {
+                        const labelEl = collectibles[i].userData.probLabelEl;
+                        if (labelEl && camera) {
+                            const pos = collectibles[i].position.clone();
+                            pos.project(camera);
+                            const x = (pos.x * 0.5 + 0.5) * window.innerWidth;
+                            const y = (-pos.y * 0.5 + 0.5) * window.innerHeight;
+                            const bobOffset = Math.sin(collectibles[i].rotation.y * 3.2 + nowSec * 2.2) * 2;
+                            labelEl.style.left = `${x}px`;
+                            labelEl.style.top = `${y - 38 + bobOffset}px`;
+                            labelEl.style.transform = 'translate(-50%,-50%)';
+                            labelEl.style.opacity = Math.max(0, Math.min(1, appearProgress)).toString();
+                        }
+                    } catch (e) {}
                 }
                 if (collectibles[i].position.z > 10) {
                     if (!collectibles[i].userData.collected) {
                         currentLevelCollectibleMissed++;
                     }
+                    // 移除悬浮标签
+                    try {
+                        const labelEl = collectibles[i].userData.probLabelEl;
+                        if (labelEl && labelEl.parentNode) labelEl.parentNode.removeChild(labelEl);
+                    } catch (e) {}
                     scene.remove(collectibles[i]);
                     collectibles.splice(i, 1);
                 }
@@ -3048,6 +3130,36 @@
                         activateOrRefreshSprint();
                     }
 
+                    // 若为红色积分，判定死亡概率
+                    if (collectibleType === 'red') {
+                        const deathProb = collectible.userData.deathProbability || 0;
+                        if (Math.random() < deathProb) {
+                            // 保留已收集分数，触发死亡流程（可复活）
+                            reviveRespawnState = {
+                                ballPosition: ball ? ball.position.clone() : null,
+                                verticalVelocity,
+                                isGrounded,
+                                lastBallX,
+                                lastCollisionBallPos: lastCollisionBallPos ? { ...lastCollisionBallPos } : null
+                            };
+                            try {
+                                const labelEl = collectible.userData.probLabelEl;
+                                if (labelEl && labelEl.parentNode) labelEl.parentNode.removeChild(labelEl);
+                            } catch (e) {}
+                            // 移除物体后触发结束逻辑，这会展示复活选项（若有）
+                            scene.remove(collectible);
+                            collectibles.splice(i, 1);
+                            checkLevelUp();
+                            endGame();
+                            return; // 退出当前检测循环分支
+                        }
+                    }
+
+                    // 移除悬浮标签（若存在）
+                    try {
+                        const labelEl = collectible.userData.probLabelEl;
+                        if (labelEl && labelEl.parentNode) labelEl.parentNode.removeChild(labelEl);
+                    } catch (e) {}
                     scene.remove(collectible);
                     collectibles.splice(i, 1);
 
@@ -3269,6 +3381,18 @@
             game.gameOver = false;
             game.paused = false;
             game.gameStarted = true;
+            if (reviveRespawnState && ball) {
+                if (reviveRespawnState.ballPosition) {
+                    ball.position.copy(reviveRespawnState.ballPosition);
+                }
+                verticalVelocity = reviveRespawnState.verticalVelocity ?? 0;
+                isGrounded = reviveRespawnState.isGrounded ?? true;
+                lastBallX = Number.isFinite(reviveRespawnState.lastBallX) ? reviveRespawnState.lastBallX : ball.position.x;
+                lastCollisionBallPos = reviveRespawnState.lastCollisionBallPos
+                    ? { ...reviveRespawnState.lastCollisionBallPos }
+                    : null;
+                reviveRespawnState = null;
+            }
             reviveInvincibleUntilMs = performance.now() + 1300;
 
             const reviveModalEl = document.getElementById('revive-modal');
