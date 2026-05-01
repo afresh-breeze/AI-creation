@@ -428,6 +428,7 @@
                 <p>3. 使用 W/↑ 键跳跃</p>
                 <p class="keyboard-tip">4. 按空格键暂停游戏</p>
                 <p>5. 收集星光积分</p>
+                <p class="keyboard-tip">蓝色积分可触发冲刺，红色积分有高分和死亡概率</p>
                 <p>6. 达到目标分数升级关卡</p>
                 <p>7. 撞到障碍物游戏结束</p>
                 <p class="keyboard-tip">8. 开始/复活/下一关/重开都可按空格确认</p>
@@ -437,6 +438,7 @@
                 <p>2. 点击左下角或右下角“跳跃”按钮起跳</p>
                 <p>3. 点击屏幕上方任意位置暂停游戏</p>
                 <p>4. 收集星光积分</p>
+                <p>蓝色积分可触发冲刺，红色积分有高分和死亡概率</p>
                 <p>5. 达到目标分数升级关卡</p>
                 <p>6. 撞到障碍物游戏结束</p>
             </div>
@@ -717,6 +719,24 @@
             sprintSpeedMultiplier = 1;
         }
 
+        function clearCollectibleProbabilityLabels() {
+            document.querySelectorAll('.prob-label').forEach((labelEl) => {
+                if (labelEl && labelEl.parentNode) {
+                    labelEl.parentNode.removeChild(labelEl);
+                }
+            });
+        }
+
+        function carryOverLevelScore() {
+            if (game.level >= levels.length) {
+                return;
+            }
+
+            const levelTarget = levels[game.level - 1].score;
+            game.score = Math.max(0, game.score - levelTarget);
+            game.level++;
+        }
+
         function getSprintMultiplier() {
             if (sprintDistanceRemaining <= 0 || sprintDistanceBudget <= 0) {
                 return 1;
@@ -899,6 +919,8 @@
             ballTrailDirection = null;
             vortexTexturePool = [];
             keys = {};
+            reviveRespawnState = null;
+            clearCollectibleProbabilityLabels();
             currentLevelCollectibleSpawned = 0;
             currentLevelCollectibleCollected = 0;
             currentLevelCollectibleMissed = 0;
@@ -3267,10 +3289,8 @@
                 levelBonusTipEl.textContent = '';
             }
             clearSprintState();
-            game.level++;
+            carryOverLevelScore();
             if (game.level > levels.length) game.level = levels.length;
-            // 重置分数，因为进入新关卡
-            game.score = 0;
             // 保存游戏状态
             saveGameState();
             updateMobileControlsVisibility();
@@ -3342,8 +3362,10 @@
             currentLevelCollectibleCollected = 0;
             currentLevelCollectibleMissed = 0;
             reviveInvincibleUntilMs = 0;
+            reviveRespawnState = null;
             clearSprintState();
             perfectLevelsAchieved.clear();
+            clearCollectibleProbabilityLabels();
             // 清除保存的游戏状态
             localStorage.removeItem('gameState');
             console.log('Game restarted, local storage cleared');
@@ -3367,7 +3389,9 @@
             currentLevelCollectibleCollected = 0;
             currentLevelCollectibleMissed = 0;
             reviveInvincibleUntilMs = 0;
+            reviveRespawnState = null;
             clearSprintState();
+            clearCollectibleProbabilityLabels();
 
             saveGameState();
             updateMobileControlsVisibility();
@@ -3430,11 +3454,12 @@
                     game.distance = 0;
                     game.paused = false;
 
-                    // 检查是否已经达到目标分数，如果是，自动进入下一关
-                    if (game.level < levels.length && game.score >= levels[game.level - 1].score) {
+                    // 如果存档停在关卡完成状态，则自动把超出目标的分数结转到下一关
+                    while (game.level < levels.length && game.score >= levels[game.level - 1].score) {
                         console.log('Auto advancing to next level:', game.level + 1);
-                        game.level++;
-                        game.score = 0;
+                        carryOverLevelScore();
+                    }
+                    if (savedState) {
                         // 保存更新后的游戏状态
                         saveGameState();
                     }
