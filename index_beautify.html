@@ -2067,6 +2067,145 @@
             };
         }
 
+        // --- 全局共享的动态体积火焰 ShaderMaterial ---
+        const flameUniforms = { time: { value: 0 } };
+        const flameShaderMaterial = new THREE.ShaderMaterial({
+            uniforms: flameUniforms,
+            vertexShader: `
+                uniform float time;
+                varying vec2 vUv;
+                varying vec3 vWorldPosition;
+                varying vec3 vLocalPosition;
+                
+                // 3D 噪声函数用于顶点置换
+                vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+                vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+                vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
+                vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+                float snoise(vec3 v) {
+                    const vec2 C = vec2(1.0/6.0, 1.0/3.0);
+                    const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+                    vec3 i  = floor(v + dot(v, C.yyy));
+                    vec3 x0 = v - i + dot(i, C.xxx);
+                    vec3 g = step(x0.yzx, x0.xyz);
+                    vec3 l = 1.0 - g;
+                    vec3 i1 = min(g.xyz, l.zxy);
+                    vec3 i2 = max(g.xyz, l.zxy);
+                    vec3 x1 = x0 - i1 + C.xxx;
+                    vec3 x2 = x0 - i2 + C.yyy;
+                    vec3 x3 = x0 - D.yyy;
+                    i = mod289(i);
+                    vec4 p = permute(permute(permute(
+                                i.z + vec4(0.0, i1.z, i2.z, 1.0))
+                              + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+                              + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+                    float n_ = 0.142857142857;
+                    vec3 ns = n_ * D.wyz - D.xzx;
+                    vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+                    vec4 x_ = floor(j * ns.z);
+                    vec4 y_ = floor(j - 7.0 * x_);
+                    vec4 x = x_ *ns.x + ns.yyyy;
+                    vec4 y = y_ *ns.x + ns.yyyy;
+                    vec4 h = 1.0 - abs(x) - abs(y);
+                    vec4 b0 = vec4(x.xy, y.xy);
+                    vec4 b1 = vec4(x.zw, y.zw);
+                    vec4 s0 = floor(b0)*2.0 + 1.0;
+                    vec4 s1 = floor(b1)*2.0 + 1.0;
+                    vec4 sh = -step(h, vec4(0.0));
+                    vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy;
+                    vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww;
+                    vec3 p0 = vec3(a0.xy, h.x);
+                    vec3 p1 = vec3(a0.zw, h.y);
+                    vec3 p2 = vec3(a1.xy, h.z);
+                    vec3 p3 = vec3(a1.zw, h.w);
+                    vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+                    p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+                    vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+                    m = m * m;
+                    return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
+                }
+
+                void main() {
+                    vUv = uv;
+                    vLocalPosition = position;
+                    
+                    // 基于高度的缩放，使得原本的球体变成水滴/火苗形状
+                    // uv.y 从 0 (底部) 到 1 (顶部)
+                    float heightFactor = uv.y;
+                    // 底部保持略胖，顶部逐渐收尖
+                    float shapeScale = mix(1.0, 0.0, pow(heightFactor, 1.5));
+                    
+                    vec3 pos = position;
+                    pos.xz *= shapeScale;
+                    
+                    // 利用 3D 噪声产生真实的不规则风吹和膨胀偏移
+                    // 降低时间乘数减缓摇曳速度
+                    float noiseVal = snoise(vec3(pos.x * 4.0, pos.y * 3.0 - time * 1.5, pos.z * 4.0));
+                    // 稍微增大噪声置换幅度
+                    float displacement = noiseVal * mix(0.02, 0.20, heightFactor);
+                    
+                    // 针对上下跳动幅度过大的问题，严格压制 Y 轴上的法线膨胀
+                    vec3 dispNormal = normal;
+                    dispNormal.y *= 0.15; // 几乎消除上下伸缩，保留横向体积张力
+                    pos += dispNormal * displacement;
+                    
+                    // 降低时间乘数使得晃动更平缓，同时稍微增加摇摆幅度
+                    pos.x += sin(time * 1.5 + pos.y * 2.0) * mix(0.0, 0.08, heightFactor);
+                    pos.z += cos(time * 1.2 + pos.y * 2.0) * mix(0.0, 0.08, heightFactor);
+
+                    // 在原本高度上拉伸
+                    pos.y *= 2.2; 
+                    // 移除了 pos.y -= 0.5; 防止火焰掉落到蜡烛内部
+
+                    vec4 worldPos = modelMatrix * vec4(pos, 1.0);
+                    vWorldPosition = worldPos.xyz;
+                    gl_Position = projectionMatrix * viewMatrix * worldPos;
+                }
+            `,
+            fragmentShader: `
+                uniform float time;
+                varying vec2 vUv;
+                varying vec3 vLocalPosition;
+                varying vec3 vWorldPosition;
+
+                void main() {
+                    float heightFactor = vUv.y;
+                    
+                    // 使火焰的边缘 fade 更加硬朗厚实，降低过度的透明消散
+                    float distToCenter = length(vUv.x - 0.5) * 2.0; 
+                    float edgeFade = 1.0 - pow(distToCenter, 3.5); // 更强的边缘包络
+                    
+                    // 顶部渐渐变暗消散
+                    float topFade = 1.0 - pow(heightFactor, 3.0);
+                    
+                    float intensity = edgeFade * topFade;
+                    
+                    if (intensity <= 0.01) discard;
+
+                    // 火焰颜色梯度（蓝 -> 橙 -> 白），加深色彩饱和度与明度
+                    vec3 colorBottom = vec3(0.0, 0.4, 2.0); // 蓝色根部
+                    vec3 colorMid = vec3(2.0, 0.6, 0.0);    // 高亮橙黄中段
+                    vec3 colorTop = vec3(1.0, 1.0, 0.9);    // 白亮尖端
+                    
+                    vec3 finalColor = mix(colorBottom, colorMid, smoothstep(0.0, 0.15, heightFactor));
+                    finalColor = mix(finalColor, colorTop, smoothstep(0.15, 0.7, heightFactor));
+                    
+                    // 中心更亮点
+                    finalColor += vec3(0.5, 0.4, 0.1) * pow(edgeFade, 2.0);
+
+                    // 提升整体基础 Alpha 浓度，使其看起来更加实体、厚重，不再有过高的透明度
+                    float alpha = min(1.0, intensity * mix(2.5, 1.2, heightFactor));
+
+                    gl_FragColor = vec4(finalColor, alpha);
+                }
+            `,
+            transparent: true,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            side: THREE.DoubleSide
+        });
+        // ----------------------------------------------------
+
         function createCandleObstacle(obstacle) {
             const waxBody = new THREE.Mesh(
                 new THREE.CylinderGeometry(0.42, 0.48, 1, 20),
@@ -2109,33 +2248,23 @@
             wick.position.y = 0.66;
             obstacle.add(wick);
 
-            const flameOuter = new THREE.Mesh(
-                new THREE.ConeGeometry(0.12, 0.32, 10),
-                new THREE.MeshStandardMaterial({
-                    color: 0xfff2c5,
-                    emissive: 0xffe08a,
-                    emissiveIntensity: 1.2,
-                    transparent: true,
-                    opacity: 0.95
-                })
+            // 真正的 3D 体积火焰！借助 Shader 在 Vertex 阶段位移这个球体
+            // 降低分段数(16x16)在移动端也完全不卡
+            const flame = new THREE.Mesh(
+                new THREE.SphereGeometry(0.18, 16, 16),
+                flameShaderMaterial
             );
-            const flameInner = new THREE.Mesh(
-                new THREE.ConeGeometry(0.06, 0.2, 10),
-                new THREE.MeshStandardMaterial({
-                    color: 0xff8e4f,
-                    emissive: 0xff6d2e,
-                    emissiveIntensity: 0.9
-                })
-            );
-            flameOuter.position.y = 0.84;
-            flameInner.position.y = 0.82;
-            obstacle.add(flameOuter);
-            obstacle.add(flameInner);
+            flame.position.y = 1.10; // 放置在烛芯上方
+            obstacle.add(flame);
+
+            // 增加真实的并且受限传播距离的点光源，避免引发深层多点光照剔除缓慢卡顿
+            const candleLight = new THREE.PointLight(0xff9900, 0.7, 4.0); // 4.0 的极短漫射距离非常关键！
+            candleLight.position.set(0, 0.8, 0);
+            obstacle.add(candleLight);
 
             obstacle.userData.collider = { type: 'cylinder', radius: 0.48, halfHeight: 0.5 };
             obstacle.userData.type = 'candle';
-            obstacle.userData.flameOuter = flameOuter;
-            obstacle.userData.flameInner = flameInner;
+            obstacle.userData.flameLight = candleLight;
             obstacle.userData.flamePhase = Math.random() * Math.PI * 2;
         }
 
@@ -2318,6 +2447,8 @@
                             if (obstacle.userData.type === 'donut') {
                                 // 恢复正圆：使用等比缩放
                                 obstacle.scale.setScalar(1.88);
+                            } else if (obstacle.userData.type === 'candle') {
+                                obstacle.scale.setScalar(2);
                             } else {
                                 obstacle.scale.set(4, 2, 2);
                             }
@@ -2389,6 +2520,8 @@
                 if (forceWide) {
                     if (forcedObstacle.userData.type === 'donut') {
                         forcedObstacle.scale.setScalar(1.88);
+                    } else if (forcedObstacle.userData.type === 'candle') {
+                        forcedObstacle.scale.setScalar(2);
                     } else {
                         forcedObstacle.scale.set(4, 2, 2);
                     }
@@ -2728,6 +2861,9 @@
 
             game.distance += frameDistance;
 
+            // 统一更新火焰 Shader 的时间
+            flameUniforms.time.value = nowSec;
+
             // 检查最大距离
             if (game.distance >= config.maxDistance) {
                 endGame();
@@ -2772,12 +2908,12 @@
                     (obstacles[i].userData.finalY - obstacles[i].userData.hiddenY) * progress;
 
                 const obstacle = obstacles[i];
-                if (shouldUpdateVisualFx && obstacle.userData.type === 'candle' && obstacle.userData.flameOuter && obstacle.userData.flameInner) {
-                    const flameWave = Math.sin(nowSec * 7 + obstacle.userData.flamePhase);
-                    obstacle.userData.flameOuter.position.y = 0.84 + flameWave * 0.05;
-                    obstacle.userData.flameOuter.scale.set(1 - flameWave * 0.08, 1 + Math.abs(flameWave) * 0.15, 1 - flameWave * 0.08);
-                    obstacle.userData.flameInner.position.y = 0.82 + flameWave * 0.04;
-                    obstacle.userData.flameInner.scale.set(1 - flameWave * 0.1, 1 + Math.abs(flameWave) * 0.2, 1 - flameWave * 0.1);
+                if (shouldUpdateVisualFx && obstacle.userData.type === 'candle' && obstacle.userData.flameLight) {
+                    // 更新点光源闪烁，赋予照明层面的真实动态感
+                    const t = nowSec * 10;
+                    const phase = obstacle.userData.flamePhase;
+                    const flicker = Math.sin(t + phase) * 0.1 + Math.sin(t * 1.5 + phase * 2) * 0.1;
+                    obstacle.userData.flameLight.intensity = 0.6 + flicker;
                 }
 
                 if (shouldUpdateVisualFx && obstacle.userData.type === 'vortex' && obstacle.userData.vortexTexture) {
