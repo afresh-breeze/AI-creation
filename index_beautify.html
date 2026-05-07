@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+﻿<<<<<<< HEAD
 "<!-- 2026-04-29 update -->" 
 "<!-- 2026-04-29 update -->" 
 "<!-- 2026-04-29 update -->" 
@@ -2218,91 +2218,42 @@
             points.push(new THREE.Vector2(0.48, -0.5));        // 底面边缘
             points.push(new THREE.Vector2(0.42, 0.40));        // 侧面上部
             
-            // 贝塞尔曲线描绘顶部的胖圆弧度与内凹熔池
-            const rimCurve = new THREE.CubicBezierCurve(
-                new THREE.Vector2(0.42, 0.40), // 侧边最高点起步
-                new THREE.Vector2(0.44, 0.51), // 向外膨胀挤出包裹感
-                new THREE.Vector2(0.41, 0.56), // 最高点的圆形大包边
-                new THREE.Vector2(0.30, 0.52)  // 向内洼陷到底部 0.52 的深度，形成熔池
-            );
+            // 平滑样条曲线描绘顶部的胖圆弧度与极其顺滑的内凹熔池
+            const rimCurve = new THREE.SplineCurve([
+                new THREE.Vector2(0.42, 0.40), // 侧边上部起步
+                new THREE.Vector2(0.435, 0.51), // 向外膨胀挤出包裹感
+                new THREE.Vector2(0.39, 0.56), // 最高点的圆形大包边
+                new THREE.Vector2(0.30, 0.48), // 内部平滑下滑
+                new THREE.Vector2(0.15, 0.43), // 底部缓和过渡
+                new THREE.Vector2(0, 0.42)     // 完美顺滑连接到中心最低点
+            ]);
             points.push(...rimCurve.getPoints(16).slice(1));
-            points.push(new THREE.Vector2(0, 0.52));           // 封闭顶面连向圆心
 
             const waxBody = new THREE.Mesh(
-                new THREE.LatheGeometry(points, 32),
+                new THREE.LatheGeometry(points, 24),
                 new THREE.MeshStandardMaterial({
-                    color: 0xf5ecda,
+                    color: 0xfff3b6, // 调浅为更柔和明亮的浅黄色
                     roughness: 0.82,
                     metalness: 0.02
                 })
             );
             obstacle.add(waxBody);
 
-            // 制作从池中漫延流淌的不孤立烛泪效果
-            const dripMaterial = new THREE.MeshStandardMaterial({
-                color: 0xf8f2e4,
-                roughness: 0.84, // 视觉上略微比高光边缘平实一些
-                metalness: 0.01
-            });
-
-            // 分布不规则的下垂烛泪
-            const dripPositions = [
-                { angle: 0.2, length: 0.35, size: 0.055 },
-                { angle: -0.35, length: 0.55, size: 0.065 },
-                { angle: 0.8, length: 0.25, size: 0.045 },
-                { angle: -0.85, length: 0.4, size: 0.06 },
-                { angle: 1.5, length: 0.28, size: 0.05 },
-                { angle: Math.PI, length: 0.45, size: 0.065 }
-            ];
-
-            dripPositions.forEach(d => {
-                const group = new THREE.Group();
-                group.rotation.y = d.angle; // 旋转整体坐标系，使X轴对准滴落的对应母线
-
-                const sideYEnd = 0.52 - d.length; // 泪滴底部在此处的Y坐标
-                // 根据侧面的倾斜锥度预估终点在圆面上的横切半径，这样可以紧紧贴在斜壁上
-                const endRadius = 0.42 + Math.max(0, 0.40 - sideYEnd) * 0.066;
-
-                // 核心：构建沿着曲面和边缘跨越流淌的三维曲线
-                const dripCurve = new THREE.CubicBezierCurve3(
-                    new THREE.Vector3(0.28, 0.52, 0),              // 起点在熔池深处
-                    new THREE.Vector3(0.46, 0.57, 0),              // 中段爬过高耸的膨胀边缘包边
-                    new THREE.Vector3(endRadius + 0.005, 0.43, 0), // 贴合侧面向下滑走
-                    new THREE.Vector3(endRadius, sideYEnd, 0)      // 流向最底端
-                );
-
-                // 根据弧线流出的圆管，完美隐入基座呈现物理连带感
-                const trailGeo = new THREE.TubeGeometry(dripCurve, 16, d.size * 0.65, 8, false);
-                const trail = new THREE.Mesh(trailGeo, dripMaterial);
-                group.add(trail);
-
-                // 底端凝固悬垂的饱满液滴头
-                const blobGeo = new THREE.SphereGeometry(d.size, 16, 16);
-                const blob = new THREE.Mesh(blobGeo, dripMaterial);
-                // 位置略微下沉使管子能够稳稳插进液滴头部
-                blob.position.set(endRadius + 0.002, sideYEnd - d.size * 0.25, 0); 
-                // 只轻微纵向延展压扁，保持柔润和贴合感
-                blob.scale.set(0.7, 1.15, 0.85); 
-                group.add(blob);
-
-                obstacle.add(group);
-            });
-
-            // 中心组件位置根据熔池深度（Y下降了）进行对应重置下移
+            // 中心组件位置根据熔池深度进行对应重置下移
             const wick = new THREE.Mesh(
                 new THREE.CylinderGeometry(0.015, 0.018, 0.12, 8),
                 new THREE.MeshStandardMaterial({ color: 0x2d1c12, roughness: 1, metalness: 0 })
             );
-            wick.position.y = 0.58; // 从 0.66 下降了约 0.08
+            wick.position.y = 0.48; // 适应新的深熔池0.42底部 (上升0.06一半身位)
             obstacle.add(wick);
 
             // 真正的 3D 体积火焰！借助 Shader 在 Vertex 阶段位移这个球体
             // 降低分段数(16x16)在移动端也完全不卡，并将球体半径从 0.18 缩小至 0.12 匹配蜡烛比例
             const flame = new THREE.Mesh(
-                new THREE.SphereGeometry(0.12, 16, 16),
+                new THREE.SphereGeometry(0.12, 12, 12),
                 flameShaderMaterial
             );
-            flame.position.y = 0.83; // 同步降低吸附在新的烛芯位
+            flame.position.y = 0.73; // 收束进内凹，火焰位置同步下调
             obstacle.add(flame);
 
             // 增加真实的并且受限传播距离的点光源，避免引发深层多点光照剔除缓慢卡顿
