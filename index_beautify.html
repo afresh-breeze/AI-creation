@@ -495,6 +495,38 @@
         let viewportSyncRafId = 0;
         let pendingPixelRatioRefresh = false;
 
+        // Runtime adaptive quality (desktop-first). Keeps controls smooth by trading a bit of clarity.
+        let desktopVisualEffectStep = 1;
+        const adaptiveQuality = {
+            enabled: true,
+            minPixelRatio: 1.0,
+            maxPixelRatio: 0,
+            badStreak: 0,
+            goodStreak: 0,
+            lastAdjustAt: 0,
+            frameMsWindow: []
+        };
+
+        function clamp01(v) {
+            return Math.max(0, Math.min(1, v));
+        }
+
+        function clamp(v, min, max) {
+            return Math.max(min, Math.min(max, v));
+        }
+
+        function setRuntimePixelRatio(nextPixelRatio) {
+            if (!renderer) return;
+            const cap = getRenderPixelRatioCap();
+            const maxAllowed = Math.min(window.devicePixelRatio || 1, cap);
+            const minAllowed = adaptiveQuality.minPixelRatio;
+            const pr = clamp(nextPixelRatio, minAllowed, maxAllowed);
+            if (!currentRenderPixelRatio || Math.abs(pr - currentRenderPixelRatio) >= 0.01) {
+                currentRenderPixelRatio = pr;
+                renderer.setPixelRatio(currentRenderPixelRatio);
+            }
+        }
+
         if (isMobile) {
             document.body.classList.add('mobile-device');
         }
@@ -536,7 +568,26 @@
         }
 
         function getRenderPixelRatioCap() {
-            return isMobile ? mobilePixelRatioCap : 2;
+            if (isMobile) return mobilePixelRatioCap;
+
+            // Desktop: avoid pegging DPR=2 on high-res screens (big perf win).
+            // Keep it adaptive-friendly; the runtime scaler can lower this further.
+            const dpr = window.devicePixelRatio || 1;
+            const shortEdge = Math.min(window.innerWidth, window.innerHeight);
+            const highEnd =
+                (memoryKnown && deviceMemoryGB >= 8 && hardwareThreads >= 12) ||
+                (!memoryKnown && hardwareThreads >= 12);
+            const mediumEnd =
+                (memoryKnown && deviceMemoryGB >= 6 && hardwareThreads >= 8) ||
+                (!memoryKnown && hardwareThreads >= 8);
+
+            if (highEnd) {
+                return shortEdge >= 900 && dpr >= 2 ? 1.65 : 1.5;
+            }
+            if (mediumEnd) {
+                return shortEdge >= 900 && dpr >= 2 ? 1.5 : 1.35;
+            }
+            return 1.25;
         }
 
         function getViewportDimensions() {
@@ -2232,9 +2283,13 @@
             const waxBody = new THREE.Mesh(
                 new THREE.LatheGeometry(points, 24),
                 new THREE.MeshStandardMaterial({
-                    color: 0xfff3b6, // 调浅为更柔和明亮的浅黄色
-                    roughness: 0.82,
-                    metalness: 0.02
+                    // 奶油黄/香草黄：更明亮但不刺眼
+                    color: 0xfff7c7,
+                    roughness: 0.76,
+                    metalness: 0.02,
+                    // 轻微“抬亮暗部”，避免底部背光处发灰
+                    emissive: 0xfff3c4,
+                    emissiveIntensity: 0.12
                 })
             );
             obstacle.add(waxBody);
@@ -2848,7 +2903,8 @@
 
             const nowMs = performance.now();
             const nowSec = nowMs * 0.001;
-            const shouldUpdateVisualFx = !isMobile || (mobileVisualFrameCounter % mobileVisualEffectStep === 0);
+            const visualEffectStep = isMobile ? mobileVisualEffectStep : desktopVisualEffectStep;
+            const shouldUpdateVisualFx = visualEffectStep <= 1 || (mobileVisualFrameCounter % visualEffectStep === 0);
 
             const frameDistance = config.speed;
             if (sprintDistanceRemaining > 0) {
@@ -3745,6 +3801,52 @@
 
             // 限制时间差，防止大延迟导致的跳跃
             const dt = Math.min(deltaTime, 0.1);
+
+            // Adaptive quality: monitor frame time and adjust desktop pixelRatio + visual FX frequency.
+            if (adaptiveQuality.enabled && renderer && scene && camera) {
+                const frameMs = Math.min(120, Math.max(0, deltaTime * 1000));
+                const win = adaptiveQuality.frameMsWindow;
+                win.push(frameMs);
+                if (win.length > 30) win.shift();
+
+                // Compute average only when window is warm.
+                if (win.length >= 20) {
+                    let sum = 0;
+                    for (let i = 0; i < win.length; i++) sum += win[i];
+                    const avgMs = sum / win.length;
+
+                    // Desktop-first; mobile already tuned aggressively.
+                    if (!isMobile) {
+                        const now = currentTime;
+                        const cooldownOk = now - adaptiveQuality.lastAdjustAt > 450;
+
+                        if (avgMs > 23) {
+                            adaptiveQuality.badStreak++;
+                            adaptiveQuality.goodStreak = 0;
+                        } else if (avgMs < 17.5) {
+                            adaptiveQuality.goodStreak++;
+                            adaptiveQuality.badStreak = 0;
+                        } else {
+                            adaptiveQuality.badStreak = 0;
+                            adaptiveQuality.goodStreak = 0;
+                        }
+
+                        if (cooldownOk && adaptiveQuality.badStreak >= 8) {
+                            // Degrade gradually.
+                            desktopVisualEffectStep = Math.min(3, desktopVisualEffectStep + 1);
+                            setRuntimePixelRatio((currentRenderPixelRatio || 1) - 0.12);
+                            adaptiveQuality.lastAdjustAt = now;
+                            adaptiveQuality.badStreak = 0;
+                        } else if (cooldownOk && adaptiveQuality.goodStreak >= 45) {
+                            // Recover gradually.
+                            desktopVisualEffectStep = Math.max(1, desktopVisualEffectStep - 1);
+                            setRuntimePixelRatio((currentRenderPixelRatio || 1) + 0.08);
+                            adaptiveQuality.lastAdjustAt = now;
+                            adaptiveQuality.goodStreak = 0;
+                        }
+                    }
+                }
+            }
 
             if (game.gameStarted && !game.gameOver && !game.paused && ball) {
                 // 保存原始速度
