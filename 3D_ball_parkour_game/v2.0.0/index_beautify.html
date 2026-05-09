@@ -1,8 +1,3 @@
-﻿<<<<<<< HEAD
-"<!-- 2026-04-29 update -->" 
-"<!-- 2026-04-29 update -->" 
-"<!-- 2026-04-29 update -->" 
-=======
 ﻿<!DOCTYPE html>
 <html lang="zh-CN">
 
@@ -507,6 +502,49 @@
             frameMsWindow: []
         };
 
+        // Lightweight perf HUD (opt-in): add ?perf=1 to URL
+        const perfHud = (() => {
+            const enabled = (() => {
+                try {
+                    return new URLSearchParams(window.location.search).get('perf') === '1';
+                } catch (e) {
+                    return false;
+                }
+            })();
+
+            const frameMsWindow = [];
+            const windowCap = 120;
+            const reportEveryMs = 1000;
+            let lastReportAt = 0;
+            let lastText = '';
+
+            function percentile(sorted, p) {
+                if (!sorted.length) return 0;
+                const idx = Math.max(0, Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * p)));
+                return sorted[idx];
+            }
+
+            function maybeReport(nowMs, { frameMs, collisionMs, obstaclesCount, collectiblesCount }) {
+                if (!enabled) return '';
+
+                frameMsWindow.push(frameMs);
+                if (frameMsWindow.length > windowCap) frameMsWindow.shift();
+
+                if (nowMs - lastReportAt < reportEveryMs) {
+                    return lastText;
+                }
+                lastReportAt = nowMs;
+
+                const sorted = frameMsWindow.slice().sort((a, b) => a - b);
+                const avg = sorted.length ? (sorted.reduce((s, v) => s + v, 0) / sorted.length) : 0;
+                const p95 = percentile(sorted, 0.95);
+                lastText = `帧ms(avg/p95): ${avg.toFixed(1)}/${p95.toFixed(1)} | 碰撞ms: ${collisionMs.toFixed(2)} | 障碍/积分: ${obstaclesCount}/${collectiblesCount}`;
+                return lastText;
+            }
+
+            return { enabled, maybeReport, get lastText() { return lastText; } };
+        })();
+
         function clamp01(v) {
             return Math.max(0, Math.min(1, v));
         }
@@ -570,6 +608,21 @@
         function getRenderPixelRatioCap() {
             if (isMobile) return mobilePixelRatioCap;
 
+            // URL override: ?dpr=1.25 (useful for testing or forcing stability)
+            // Default (desktop) aims to reduce fill-rate spikes on fullscreen/high-DPI displays.
+            let urlCap = null;
+            try {
+                const raw = new URLSearchParams(window.location.search).get('dpr');
+                if (raw != null && raw !== '') {
+                    const v = Number(raw);
+                    if (Number.isFinite(v) && v > 0) urlCap = v;
+                }
+            } catch (e) {}
+
+            // Desktop default cap: prioritize smoothness on iGPU / large windows.
+            // You can always raise it per-launch via ?dpr=1.0/1.25/1.5 etc.
+            const defaultDesktopCap = 0.85;
+
             // Desktop: avoid pegging DPR=2 on high-res screens (big perf win).
             // Keep it adaptive-friendly; the runtime scaler can lower this further.
             const dpr = window.devicePixelRatio || 1;
@@ -582,12 +635,15 @@
                 (!memoryKnown && hardwareThreads >= 8);
 
             if (highEnd) {
-                return shortEdge >= 900 && dpr >= 2 ? 1.65 : 1.5;
+                const cap = shortEdge >= 900 && dpr >= 2 ? 1.65 : 1.5;
+                return urlCap != null ? Math.min(urlCap, cap) : Math.min(defaultDesktopCap, cap);
             }
             if (mediumEnd) {
-                return shortEdge >= 900 && dpr >= 2 ? 1.5 : 1.35;
+                const cap = shortEdge >= 900 && dpr >= 2 ? 1.5 : 1.35;
+                return urlCap != null ? Math.min(urlCap, cap) : Math.min(defaultDesktopCap, cap);
             }
-            return 1.25;
+            const cap = 1.25;
+            return urlCap != null ? Math.min(urlCap, cap) : Math.min(defaultDesktopCap, cap);
         }
 
         function getViewportDimensions() {
@@ -694,7 +750,8 @@
             level: 1,
             score: 0,
             gameOver: false,
-            gameStarted: false,
+            hasStarted: false, // entered gameplay at least once (for UI/analytics)
+            running: false,    // gameplay is actively running (not start/levelComplete/revive/gameOver)
             distance: 0,
             paused: false
         };
@@ -705,6 +762,7 @@
         let obstacles = [];
         let collectibles = [];
         let collectibleBursts = [];
+        const tmpProjectVec3 = new THREE.Vector3();
         let lastBallX = 0;
         let lastCollisionBallPos = null;
         let ballTrailNodes = [];
@@ -716,6 +774,7 @@
         let verticalVelocity = 0;
         let isGrounded = true;
         let roadMaterial = null;
+        let sharedRoadGeometry = null;
         let vortexTexturePool = [];
         const mobileFaceRefreshIntervalMs = mobileLowTier ? 180 : 150;
         let modelLoadingShownAt = 0;
@@ -725,6 +784,8 @@
         let modelLoadingVisible = false;
         let reviveChances = 0;
         let reviveRespawnState = null;
+        let lastDeathCause = null; // 'maxDistance' | null
+        let pendingRedRewardScore = 0;
         let currentLevelCollectibleSpawned = 0;
         let currentLevelCollectibleCollected = 0;
     let currentLevelCollectibleMissed = 0;
@@ -781,6 +842,17 @@
                     labelEl.parentNode.removeChild(labelEl);
                 }
             });
+        }
+
+        function removeCollectibleProbLabel(collectible) {
+            if (!collectible || !collectible.userData) return;
+            try {
+                const labelEl = collectible.userData.probLabelEl;
+                if (labelEl && labelEl.parentNode) {
+                    labelEl.parentNode.removeChild(labelEl);
+                }
+            } catch (e) {}
+            collectible.userData.probLabelEl = null;
         }
 
         function carryOverLevelScore() {
@@ -908,7 +980,8 @@
                     try {
                         initGame();
                         if (autoStart) {
-                            game.gameStarted = true;
+                            game.hasStarted = true;
+                            game.running = true;
                             const startScreen = document.getElementById('start-screen');
                             if (startScreen) {
                                 startScreen.style.display = 'none';
@@ -949,20 +1022,12 @@
             config.maxDistance = 1800 + (game.level - 1) * 200 + Math.pow(game.level - 1, 2) * 100;
 
             // 重置游戏状态（如果是首次加载或重新开始）
-            if (!game.gameStarted) {
-                // 不重置分数，保留加载的分数
-                // if (game.level === 1) {
-                //     game.score = 0;
-                // }
-                game.gameOver = false;
-                game.distance = 0;
-                game.paused = false;
-            } else {
-                // 如果是加载保存的游戏状态，重置距离
-                game.distance = 0;
-                // 重置游戏开始状态，避免立即进入关卡完成
-                game.gameStarted = false;
-            }
+            // 不重置分数，保留加载的分数；但每次重建场景都回到“未运行”状态
+            game.gameOver = false;
+            game.distance = 0;
+            game.paused = false;
+            game.running = false;
+            game.hasStarted = false;
 
             // 清空数组
             roadSegments = [];
@@ -976,6 +1041,7 @@
             vortexTexturePool = [];
             keys = {};
             reviveRespawnState = null;
+            lastDeathCause = null;
             clearCollectibleProbabilityLabels();
             currentLevelCollectibleSpawned = 0;
             currentLevelCollectibleCollected = 0;
@@ -1362,7 +1428,14 @@
             ballTrailSprites = [];
             ballTrailNodes = [];
 
-            const segments = ballTrailMaxNodes - 1;
+            let segments = ballTrailMaxNodes - 1;
+            // Optional GPU-friendly mode: ?trail=low reduces geometry upload cost
+            try {
+                const trailParam = new URLSearchParams(window.location.search).get('trail');
+                if (trailParam === 'low') {
+                    segments = Math.max(8, Math.floor(segments / 2));
+                }
+            } catch (e) {}
             const geo = new THREE.PlaneGeometry(1, 1, 1, segments);
             const mat = new THREE.MeshBasicMaterial({
                 map: spriteTex,
@@ -1392,6 +1465,40 @@
         function updateBallRollAndTrail(dt, timeSec) {
             if (!ball || !ballTrailSystem) return;
 
+            if (!updateBallRollAndTrail._tmp) {
+                updateBallRollAndTrail._tmp = {
+                    axis: new THREE.Vector3(),
+                    q: new THREE.Quaternion(),
+                    direction: new THREE.Vector3(),
+                    head: new THREE.Vector3(),
+                    up: new THREE.Vector3(0, 1, 0),
+                    tangent: new THREE.Vector3(),
+                    right: new THREE.Vector3(),
+                    center: new THREE.Vector3(),
+                    pL: new THREE.Vector3(),
+                    pR: new THREE.Vector3(),
+                    forward: new THREE.Vector3(),
+                    frameCounter: 0,
+                    liteMode: null,
+                    liteLevel: null,
+                    trailLow: null
+                };
+            }
+            const tmp = updateBallRollAndTrail._tmp;
+            tmp.frameCounter = (tmp.frameCounter + 1) | 0;
+            if (tmp.liteMode == null) {
+                try {
+                    const liteRaw = new URLSearchParams(window.location.search).get('lite');
+                    tmp.liteLevel = liteRaw ? Number(liteRaw) : 0;
+                    tmp.liteMode = tmp.liteLevel >= 1;
+                    tmp.trailLow = new URLSearchParams(window.location.search).get('trail') === 'low';
+                } catch (e) {
+                    tmp.liteMode = false;
+                    tmp.liteLevel = 0;
+                    tmp.trailLow = false;
+                }
+            }
+
             const ballRadius = ball.userData.radius || 0.5;
             const dx = ball.position.x - lastBallX;
             const dz = -config.speed; // 道路向前滚动等价为小球向 -Z 方向前进
@@ -1399,15 +1506,15 @@
 
             if (distance > 1e-5) {
                 // 物理滚动轴：up x displacement，确保与运动方向一致
-                const axis = new THREE.Vector3(dz, 0, -dx).normalize();
+                const axis = tmp.axis.set(dz, 0, -dx).normalize();
                 const angle = distance / ballRadius;
-                const q = new THREE.Quaternion().setFromAxisAngle(axis, angle);
+                const q = tmp.q.setFromAxisAngle(axis, angle);
                 ball.quaternion.premultiply(q);
             }
             lastBallX = ball.position.x;
 
             // 地面光路：沿运动轨迹实时生成，停止后逐步淡去
-            const direction = new THREE.Vector3(-dx, 0, -dz);
+            const direction = tmp.direction.set(-dx, 0, -dz);
             if (direction.lengthSq() < 1e-5) {
                 direction.set(0, 0, 1);
             } else {
@@ -1415,13 +1522,13 @@
             }
 
             if (!ballTrailDirection) {
-                ballTrailDirection = direction.clone();
+                ballTrailDirection = new THREE.Vector3().copy(direction);
             } else {
                 ballTrailDirection.lerp(direction, 0.2).normalize();
             }
 
             const isMoving = Math.abs(dx) + Math.abs(dz) > 0.00008;
-            const head = new THREE.Vector3(
+            const head = tmp.head.set(
                 ball.position.x + ballTrailDirection.x * 0.28,
                 0.015,
                 ball.position.z + ballTrailDirection.z * 0.28
@@ -1450,17 +1557,17 @@
 
             const mesh = ballTrailSprites[0];
             const posAttr = mesh.geometry.attributes.position;
-            const up = new THREE.Vector3(0, 1, 0);
+            const up = tmp.up;
 
             for (let j = 0; j < ballTrailNodes.length; j++) {
                 const p = ballTrailNodes[j];
                 const t = j / (ballTrailNodes.length - 1); // 头->尾
 
-                let tangent = ballTrailDirection.clone();
+                const tangent = tmp.tangent.copy(ballTrailDirection);
                 if (j > 0 && j < ballTrailNodes.length - 1) {
                     tangent.subVectors(ballTrailNodes[j - 1], ballTrailNodes[j + 1]).normalize();
                 }
-                let right = new THREE.Vector3().crossVectors(up, tangent).normalize();
+                const right = tmp.right.crossVectors(up, tangent).normalize();
                 if (right.lengthSq() < 0.0001) right.set(1, 0, 0);
 
                 // 渐细 + 收拢
@@ -1472,20 +1579,20 @@
                     width = 0.76 * Math.pow(1 - (t - 0.06) / 0.94, 1.03) + 0.04;
                 }
                 // 取消尾部向当前球心横向回拉，避免出现“回勾”
-                const center = new THREE.Vector3(
-                    p.x,
-                    0.015,
-                    p.z
-                );
-                const pL = center.clone().addScaledVector(right, width * 0.5);
-                const pR = center.clone().addScaledVector(right, -width * 0.5);
+                const center = tmp.center.set(p.x, 0.015, p.z);
+                const pL = tmp.pL.copy(center).addScaledVector(right, width * 0.5);
+                const pR = tmp.pR.copy(center).addScaledVector(right, -width * 0.5);
 
                 const vIdxL = j * 2;
                 const vIdxR = j * 2 + 1;
                 posAttr.setXYZ(vIdxL, pL.x, pL.y, pL.z);
                 posAttr.setXYZ(vIdxR, pR.x, pR.y, pR.z);
             }
-            posAttr.needsUpdate = true;
+            // Reduce GPU buffer uploads when trail=low
+            const trailUpdateStep = tmp.trailLow ? 2 : 1;
+            if ((tmp.frameCounter % trailUpdateStep) === 0) {
+                posAttr.needsUpdate = true;
+            }
 
             // 淡色 + 轻微呼吸，不抢主体
             const baseOpacity = isMoving ? 0.38 : 0.2;
@@ -1510,21 +1617,28 @@
                 auraShellEdge.material.opacity = 0;
                 auraFlowStrips.forEach((strip) => {
                     strip.material.opacity = 0;
+                    strip.visible = true;
                 });
                 return;
             }
 
             auraGroup.visible = true;
-            const forward = ballTrailDirection && ballTrailDirection.lengthSq() > 1e-6
-                ? ballTrailDirection.clone().normalize()
-                : new THREE.Vector3(0, 0, 1);
+            const forward = tmp.forward;
+            if (ballTrailDirection && ballTrailDirection.lengthSq() > 1e-6) {
+                forward.copy(ballTrailDirection).normalize();
+            } else {
+                forward.set(0, 0, 1);
+            }
             auraGroup.position.copy(ball.position);
             auraGroup.position.y += 0.02;
             auraGroup.rotation.set(0, Math.atan2(forward.x, forward.z), 0);
 
             const flicker = 0.92 + 0.08 * Math.sin(timeSec * 18);
-            auraShellMain.material.opacity = (0.14 + 0.05 * Math.sin(timeSec * 7.5)) * visualStrength * flicker;
-            auraShellEdge.material.opacity = (0.2 + 0.06 * Math.sin(timeSec * 10.5 + 0.8)) * visualStrength;
+            // Sprint aura is heavy on iGPU (transparent overdraw). Reduce intensity slightly by default,
+            // and allow an extra lite mode via ?lite=1.
+            const auraCostScale = tmp.liteLevel >= 2 ? 0.45 : (tmp.liteMode ? 0.55 : 0.7);
+            auraShellMain.material.opacity = (0.14 + 0.05 * Math.sin(timeSec * 7.5)) * visualStrength * flicker * auraCostScale;
+            auraShellEdge.material.opacity = (0.2 + 0.06 * Math.sin(timeSec * 10.5 + 0.8)) * visualStrength * auraCostScale;
 
             auraShellMain.scale.set(
                 0.96 + 0.08 * visualStrength,
@@ -1539,12 +1653,30 @@
 
             const stripOpacityBase = (0.2 + 0.05 * Math.sin(timeSec * 9)) * visualStrength;
             const stripLengthScale = 0.78 + 0.55 * visualStrength;
+            // Ultra lite: disable flow strips entirely (transparent overdraw killer)
+            if (tmp.liteLevel >= 2) {
+                auraFlowStrips.forEach((strip) => {
+                    strip.visible = false;
+                    strip.material.opacity = 0;
+                });
+                return;
+            }
+
+            const auraUpdateStep = tmp.liteMode ? 3 : 2; // update texture scroll less frequently during sprint
+            const shouldUpdateAuraScroll = (tmp.frameCounter % auraUpdateStep) === 0;
             auraFlowStrips.forEach((strip, idx) => {
+                if (tmp.liteMode && (idx % 2 === 1)) {
+                    strip.visible = false;
+                    return;
+                }
+                strip.visible = true;
                 const pulse = 0.85 + 0.15 * Math.sin(timeSec * 12 + (strip.userData.phase || idx));
-                strip.material.opacity = stripOpacityBase * pulse;
+                strip.material.opacity = stripOpacityBase * pulse * auraCostScale;
                 strip.scale.set(1 + 0.14 * visualStrength, stripLengthScale, 1);
                 if (strip.material.map) {
-                    strip.material.map.offset.y = (strip.material.map.offset.y + dt * (1.25 + 2.4 * visualStrength)) % 1;
+                    if (shouldUpdateAuraScroll) {
+                        strip.material.map.offset.y = (strip.material.map.offset.y + dt * auraUpdateStep * (1.25 + 2.4 * visualStrength)) % 1;
+                    }
                 }
             });
         }
@@ -1552,11 +1684,11 @@
         // 创建道路
         function createRoad() {
             const segmentLength = config.roadLength / config.segments;
-            const geometry = new THREE.PlaneGeometry(config.roadWidth, segmentLength);
+            sharedRoadGeometry = new THREE.PlaneGeometry(config.roadWidth, segmentLength);
             roadMaterial = createRoadMaterial();
 
             for (let i = 0; i < config.segments; i++) {
-                const segment = new THREE.Mesh(geometry, roadMaterial);
+                const segment = new THREE.Mesh(sharedRoadGeometry, roadMaterial);
                 segment.rotation.x = -Math.PI / 2;
                 segment.position.set(0, 0, -i * segmentLength);
                 roadSegments.push(segment);
@@ -2921,6 +3053,7 @@
 
             // 检查最大距离
             if (game.distance >= config.maxDistance) {
+                lastDeathCause = 'maxDistance';
                 endGame();
                 return;
             }
@@ -2933,25 +3066,28 @@
                 roadMaterial.map.offset.y -= config.speed * 0.04;
             }
 
-            // 移动路段
-            roadSegments.forEach(segment => {
-                segment.position.z += config.speed;
-                if (segment.position.z > segmentLength) {
-                    scene.remove(segment);
-                    roadSegments.shift();
+            // 移动路段（避免在 forEach 中 shift 导致跳段/额外开销）
+            for (let i = 0; i < roadSegments.length; i++) {
+                roadSegments[i].position.z += config.speed;
+            }
 
-                    // 创建新路段
-                    const geometry = new THREE.PlaneGeometry(config.roadWidth, segmentLength);
-                    const newSegment = new THREE.Mesh(geometry, roadMaterial);
-                    newSegment.rotation.x = -Math.PI / 2;
-                    newSegment.position.set(0, 0, roadSegments[roadSegments.length - 1].position.z - segmentLength);
-                    roadSegments.push(newSegment);
-                    scene.add(newSegment);
+            while (roadSegments.length && roadSegments[0].position.z > segmentLength) {
+                const first = roadSegments[0];
+                scene.remove(first);
+                roadSegments.shift();
 
-                    // 生成障碍物和积分
-                    generateObjects(newSegment.position.z, segmentLength);
-                }
-            });
+                const lastZ = roadSegments.length
+                    ? roadSegments[roadSegments.length - 1].position.z
+                    : 0;
+
+                // Reuse shared geometry; just re-position the old mesh
+                first.position.set(0, 0, lastZ - segmentLength);
+                roadSegments.push(first);
+                scene.add(first);
+
+                // 生成障碍物和积分
+                generateObjects(first.position.z, segmentLength);
+            }
 
             // 移动障碍物
             for (let i = obstacles.length - 1; i >= 0; i--) {
@@ -3076,10 +3212,9 @@
                     try {
                         const labelEl = collectibles[i].userData.probLabelEl;
                         if (labelEl && camera) {
-                            const pos = collectibles[i].position.clone();
-                            pos.project(camera);
-                            const x = (pos.x * 0.5 + 0.5) * window.innerWidth;
-                            const y = (-pos.y * 0.5 + 0.5) * window.innerHeight;
+                            tmpProjectVec3.copy(collectibles[i].position).project(camera);
+                            const x = (tmpProjectVec3.x * 0.5 + 0.5) * window.innerWidth;
+                            const y = (-tmpProjectVec3.y * 0.5 + 0.5) * window.innerHeight;
                             const bobOffset = Math.sin(collectibles[i].rotation.y * 3.2 + nowSec * 2.2) * 2;
                             labelEl.style.left = `${x}px`;
                             labelEl.style.top = `${y - 38 + bobOffset}px`;
@@ -3093,10 +3228,7 @@
                         currentLevelCollectibleMissed++;
                     }
                     // 移除悬浮标签
-                    try {
-                        const labelEl = collectibles[i].userData.probLabelEl;
-                        if (labelEl && labelEl.parentNode) labelEl.parentNode.removeChild(labelEl);
-                    } catch (e) {}
+                    removeCollectibleProbLabel(collectibles[i]);
                     scene.remove(collectibles[i]);
                     collectibles.splice(i, 1);
                 }
@@ -3131,33 +3263,64 @@
             // 小球的边界球半径
             const ballRadius = ball.userData.radius || 0.5;
             const ballPosition = ball.position;
-            const previousBallSample = lastCollisionBallPos
-                ? { ...lastCollisionBallPos }
-                : { x: ballPosition.x, y: ballPosition.y, z: ballPosition.z };
-            const currentBallSample = { x: ballPosition.x, y: ballPosition.y, z: ballPosition.z };
-            const torusSamples = [currentBallSample];
+            if (!checkCollisions._samples) {
+                checkCollisions._samples = [
+                    { x: 0, y: 0, z: 0 }, // current
+                    { x: 0, y: 0, z: 0 }, // mid
+                    { x: 0, y: 0, z: 0 }  // previous
+                ];
+            }
+            const samples = checkCollisions._samples;
+            const currentBallSample = samples[0];
+            currentBallSample.x = ballPosition.x;
+            currentBallSample.y = ballPosition.y;
+            currentBallSample.z = ballPosition.z;
+
+            const previousBallSample = samples[2];
+            if (lastCollisionBallPos) {
+                previousBallSample.x = lastCollisionBallPos.x;
+                previousBallSample.y = lastCollisionBallPos.y;
+                previousBallSample.z = lastCollisionBallPos.z;
+            } else {
+                previousBallSample.x = currentBallSample.x;
+                previousBallSample.y = currentBallSample.y;
+                previousBallSample.z = currentBallSample.z;
+            }
+
+            let sampleCount = 1; // current only by default
             const sampleDeltaSq =
                 Math.pow(currentBallSample.x - previousBallSample.x, 2) +
                 Math.pow(currentBallSample.y - previousBallSample.y, 2) +
                 Math.pow(currentBallSample.z - previousBallSample.z, 2);
 
             if (sampleDeltaSq > 1e-6) {
-                torusSamples.push({
-                    x: (currentBallSample.x + previousBallSample.x) * 0.5,
-                    y: (currentBallSample.y + previousBallSample.y) * 0.5,
-                    z: (currentBallSample.z + previousBallSample.z) * 0.5
-                });
-                torusSamples.push(previousBallSample);
+                const mid = samples[1];
+                mid.x = (currentBallSample.x + previousBallSample.x) * 0.5;
+                mid.y = (currentBallSample.y + previousBallSample.y) * 0.5;
+                mid.z = (currentBallSample.z + previousBallSample.z) * 0.5;
+                sampleCount = 3; // current + mid + previous
             }
-            lastCollisionBallPos = currentBallSample;
+            if (!lastCollisionBallPos) {
+                lastCollisionBallPos = { x: 0, y: 0, z: 0 };
+            }
+            lastCollisionBallPos.x = currentBallSample.x;
+            lastCollisionBallPos.y = currentBallSample.y;
+            lastCollisionBallPos.z = currentBallSample.z;
 
             // 检测障碍物碰撞 - 严格判定，碰到即算
             let collisionDetected = false;
             if (!ignoreObstacleDamage) {
-                obstacles.forEach(obstacle => {
-                const scale = obstacle.scale;
-                const position = obstacle.position;
-                const collider = obstacle.userData.collider || { type: 'box', halfX: 0.5, halfY: 0.5, halfZ: 0.5 };
+                // Z window culling: only check near-field obstacles.
+                const zWindowBehind = 8 + config.speed * 8;
+                const zWindowAhead = 5 + config.speed * 4;
+                for (let oi = 0; oi < obstacles.length && !collisionDetected; oi++) {
+                    const obstacle = obstacles[oi];
+                    const scale = obstacle.scale;
+                    const position = obstacle.position;
+                    const dzWindow = position.z - ballPosition.z;
+                    if (dzWindow < -zWindowBehind || dzWindow > zWindowAhead) continue;
+
+                    const collider = obstacle.userData.collider || { type: 'box', halfX: 0.5, halfY: 0.5, halfZ: 0.5 };
 
                 if (collider.type === 'box') {
                     const halfWidth = collider.halfX * scale.x;
@@ -3206,8 +3369,12 @@
                         return surfaceDistanceSq <= collideRadiusSq;
                     };
 
-                    if (torusSamples.some(checkDiskCollisionAt)) {
-                        collisionDetected = true;
+                    for (let si = 0; si < sampleCount; si++) {
+                        const sample = samples[si === 2 ? 2 : (si === 1 ? 1 : 0)];
+                        if (checkDiskCollisionAt(sample)) {
+                            collisionDetected = true;
+                            break;
+                        }
                     }
                 } else if (collider.type === 'cylinder') {
                     const radius = collider.radius * Math.max(scale.x, scale.z);
@@ -3277,8 +3444,12 @@
                         return surfaceDistanceSq <= collideRadiusSq;
                     };
 
-                    if (torusSamples.some(checkTorusCollisionAt)) {
-                        collisionDetected = true;
+                    for (let si = 0; si < sampleCount; si++) {
+                        const sample = samples[si === 2 ? 2 : (si === 1 ? 1 : 0)];
+                        if (checkTorusCollisionAt(sample)) {
+                            collisionDetected = true;
+                            break;
+                        }
                     }
                 } else {
                     const halfWidth = 0.5 * scale.x;
@@ -3306,10 +3477,11 @@
                         collisionDetected = true;
                     }
                 }
-                });
+                }
             }
 
             if (collisionDetected) {
+                lastDeathCause = null;
                 endGame();
             }
 
@@ -3333,21 +3505,33 @@
                         ? collectible.userData.scoreValue
                         : 10;
 
-                    game.score += scoreValue;
                     currentLevelCollectibleCollected++;
                     collectible.userData.collected = true;
-                    document.getElementById('score').textContent = `分数: ${game.score}`;
                     spawnCollectibleBurst(collectible.position, collectibleType);
 
                     if (collectibleType === 'blue') {
+                        game.score += scoreValue;
+                        document.getElementById('score').textContent = `分数: ${game.score}`;
                         activateOrRefreshSprint();
+                        // 检查升级
+                        removeCollectibleProbLabel(collectible);
+                        scene.remove(collectible);
+                        collectibles.splice(i, 1);
+                        checkLevelUp();
+                        continue;
                     }
 
                     // 若为红色积分，判定死亡概率
                     if (collectibleType === 'red') {
                         const deathProb = collectible.userData.deathProbability || 0;
                         if (Math.random() < deathProb) {
-                            // 保留已收集分数，触发死亡流程（可复活）
+                            lastDeathCause = null;
+                            // 赌命失败：无复活则不计分直接结束；有复活则先弹复活，复活后再结算分数
+                            if (reviveChances > 0) {
+                                pendingRedRewardScore = scoreValue;
+                            } else {
+                                pendingRedRewardScore = 0;
+                            }
                             reviveRespawnState = {
                                 ballPosition: ball ? ball.position.clone() : null,
                                 verticalVelocity,
@@ -3355,24 +3539,27 @@
                                 lastBallX,
                                 lastCollisionBallPos: lastCollisionBallPos ? { ...lastCollisionBallPos } : null
                             };
-                            try {
-                                const labelEl = collectible.userData.probLabelEl;
-                                if (labelEl && labelEl.parentNode) labelEl.parentNode.removeChild(labelEl);
-                            } catch (e) {}
+                            removeCollectibleProbLabel(collectible);
                             // 移除物体后触发结束逻辑，这会展示复活选项（若有）
                             scene.remove(collectible);
                             collectibles.splice(i, 1);
-                            checkLevelUp();
                             endGame();
                             return; // 退出当前检测循环分支
                         }
+
+                        // 赌命成功：正常计分
+                        game.score += scoreValue;
+                        document.getElementById('score').textContent = `分数: ${game.score}`;
+                    }
+
+                    // 普通积分：正常计分
+                    if (collectibleType === 'normal') {
+                        game.score += scoreValue;
+                        document.getElementById('score').textContent = `分数: ${game.score}`;
                     }
 
                     // 移除悬浮标签（若存在）
-                    try {
-                        const labelEl = collectible.userData.probLabelEl;
-                        if (labelEl && labelEl.parentNode) labelEl.parentNode.removeChild(labelEl);
-                    } catch (e) {}
+                    removeCollectibleProbLabel(collectible);
                     scene.remove(collectible);
                     collectibles.splice(i, 1);
 
@@ -3389,15 +3576,18 @@
                 return;
             }
 
+            // 仅在实际跑动状态下才允许触发过关提示
+            if (!game.running) {
+                return;
+            }
+
             // 确保游戏未结束且分数达到目标
             if (game.score >= levels[game.level - 1].score && !game.gameOver) {
                 console.log('Level complete:', game.level, 'Score:', game.score, 'Target:', levels[game.level - 1].score);
 
                 const levelBonusTipEl = document.getElementById('level-bonus-tip');
-                const nearUncollectedCount = collectibles.filter(c => !c.userData.collected && c.position.z > -22).length;
                 const isGrandSlam = currentLevelCollectibleCollected > 0 &&
-                    currentLevelCollectibleMissed === 0 &&
-                    nearUncollectedCount === 0;
+                    currentLevelCollectibleMissed === 0;
                 if (isGrandSlam && !perfectLevelsAchieved.has(game.level)) {
                     reviveChances++;
                     perfectLevelsAchieved.add(game.level);
@@ -3411,7 +3601,7 @@
                 }
 
                 // 暂停游戏
-                game.gameStarted = false;
+                game.running = false;
 
                 // 保存游戏状态（关卡完成）
                 saveGameState();
@@ -3467,7 +3657,8 @@
         // 开始游戏
         function startGame() {
             document.getElementById('start-screen').style.display = 'none';
-            game.gameStarted = true;
+            game.hasStarted = true;
+            game.running = true;
             updateMobileControlsVisibility();
         }
 
@@ -3503,13 +3694,14 @@
 
                 // 不点击继续时等效暂停；保留当前关卡与分数
                 game.paused = true;
-                game.gameStarted = false;
+                game.running = false;
                 saveGameState();
                 updateMobileControlsVisibility();
                 return;
             }
 
             game.gameOver = true;
+            game.running = false;
             document.getElementById('final-score').textContent = game.score;
             document.getElementById('final-level').textContent = game.level;
 
@@ -3544,11 +3736,13 @@
             document.getElementById('revive-modal').style.display = 'none';
             game.level = 1;
             game.score = 0;
-            game.gameStarted = false;
+            game.running = false;
+            game.hasStarted = false;
             game.gameOver = false;
             game.distance = 0;
             game.paused = false;
             reviveChances = 0;
+            pendingRedRewardScore = 0;
             currentLevelCollectibleSpawned = 0;
             currentLevelCollectibleCollected = 0;
             currentLevelCollectibleMissed = 0;
@@ -3571,8 +3765,16 @@
             document.getElementById('pause-menu').style.display = 'none';
             document.getElementById('revive-modal').style.display = 'none';
 
+            // 清除“本关大满贯已达成”标记：允许重新挑战本关大满贯
+            // 同时回收本关曾发放的复活次数，避免通过重开本关重复刷复活
+            if (perfectLevelsAchieved.has(game.level)) {
+                perfectLevelsAchieved.delete(game.level);
+                reviveChances = Math.max(0, reviveChances - 1);
+            }
+
             game.score = 0;
-            game.gameStarted = false;
+            game.running = false;
+            game.hasStarted = false;
             game.gameOver = false;
             game.distance = 0;
             game.paused = false;
@@ -3581,6 +3783,7 @@
             currentLevelCollectibleMissed = 0;
             reviveInvincibleUntilMs = 0;
             reviveRespawnState = null;
+            pendingRedRewardScore = 0;
             clearSprintState();
             clearCollectibleProbabilityLabels();
 
@@ -3595,7 +3798,12 @@
             reviveChances--;
             game.gameOver = false;
             game.paused = false;
-            game.gameStarted = true;
+            game.hasStarted = true;
+            game.running = true;
+            if (lastDeathCause === 'maxDistance') {
+                game.distance = 0;
+                lastDeathCause = null;
+            }
             if (reviveRespawnState && ball) {
                 if (reviveRespawnState.ballPosition) {
                     ball.position.copy(reviveRespawnState.ballPosition);
@@ -3609,6 +3817,15 @@
                 reviveRespawnState = null;
             }
             reviveInvincibleUntilMs = performance.now() + 1300;
+
+            // 复活后结算“红球赌命失败”的延迟奖励
+            if (pendingRedRewardScore > 0) {
+                game.score += pendingRedRewardScore;
+                pendingRedRewardScore = 0;
+                document.getElementById('score').textContent = `分数: ${game.score}`;
+                // 结算后允许正常触发过关提示
+                checkLevelUp();
+            }
 
             const reviveModalEl = document.getElementById('revive-modal');
             if (reviveModalEl) {
@@ -3640,10 +3857,11 @@
                     }
 
                     // 重置其他状态
-                    game.gameStarted = false;
                     game.gameOver = false;
                     game.distance = 0;
                     game.paused = false;
+                    game.running = false;
+                    game.hasStarted = false;
 
                     // 如果存档停在关卡完成状态，则自动把超出目标的分数结转到下一关
                     while (game.level < levels.length && game.score >= levels[game.level - 1].score) {
@@ -3666,10 +3884,11 @@
                 // 如果加载失败，重置为默认状态
                 game.level = 1;
                 game.score = 0;
-                game.gameStarted = false;
                 game.gameOver = false;
                 game.distance = 0;
                 game.paused = false;
+                game.running = false;
+                game.hasStarted = false;
                 reviveChances = 0;
                 perfectLevelsAchieved.clear();
             }
@@ -3681,10 +3900,7 @@
                 level: game.level,
                 score: game.score,
                 reviveChances,
-                perfectLevelsAchieved: Array.from(perfectLevelsAchieved),
-                gameStarted: game.gameStarted,
-                gameOver: game.gameOver,
-                paused: game.paused
+                perfectLevelsAchieved: Array.from(perfectLevelsAchieved)
             };
             localStorage.setItem('gameState', JSON.stringify(state));
             console.log('Game state saved:', state);
@@ -3722,7 +3938,7 @@
                 return true;
             }
 
-            if (game.gameStarted && !game.gameOver) {
+            if (game.running && !game.gameOver) {
                 togglePause();
                 return true;
             }
@@ -3732,7 +3948,7 @@
 
         // 暂停/继续游戏
         function togglePause() {
-            if (game.gameOver || !game.gameStarted) {
+            if (game.gameOver || !game.running) {
                 return;
             }
 
@@ -3775,7 +3991,7 @@
                 isVisible('pause-menu') ||
                 isVisible('revive-modal');
 
-            const shouldShow = game.gameStarted && !game.gameOver && !game.paused && !panelBlocking;
+            const shouldShow = game.running && !game.gameOver && !game.paused && !panelBlocking;
             document.body.classList.toggle('mobile-controls-active', shouldShow);
         }
 
@@ -3787,7 +4003,10 @@
             } else {
                 document.getElementById('level').textContent = `关卡: ${game.level} / 目标: ${levels[game.level - 1].score}`;
             }
-            document.getElementById('debug').textContent = `速度: ${config.speed} | 关卡: ${game.level}`;
+            const base = `速度: ${config.speed} | 关卡: ${game.level}`;
+            document.getElementById('debug').textContent = perfHud.enabled && perfHud.lastText
+                ? `${base}\n${perfHud.lastText}`
+                : base;
         }
 
         // 动画循环
@@ -3801,75 +4020,37 @@
 
             // 限制时间差，防止大延迟导致的跳跃
             const dt = Math.min(deltaTime, 0.1);
+            const frameStartMs = perfHud.enabled ? performance.now() : 0;
+            let collisionMs = 0;
 
-            // Adaptive quality: monitor frame time and adjust desktop pixelRatio + visual FX frequency.
-            if (adaptiveQuality.enabled && renderer && scene && camera) {
-                const frameMs = Math.min(120, Math.max(0, deltaTime * 1000));
-                const win = adaptiveQuality.frameMsWindow;
-                win.push(frameMs);
-                if (win.length > 30) win.shift();
-
-                // Compute average only when window is warm.
-                if (win.length >= 20) {
-                    let sum = 0;
-                    for (let i = 0; i < win.length; i++) sum += win[i];
-                    const avgMs = sum / win.length;
-
-                    // Desktop-first; mobile already tuned aggressively.
-                    if (!isMobile) {
-                        const now = currentTime;
-                        const cooldownOk = now - adaptiveQuality.lastAdjustAt > 450;
-
-                        if (avgMs > 23) {
-                            adaptiveQuality.badStreak++;
-                            adaptiveQuality.goodStreak = 0;
-                        } else if (avgMs < 17.5) {
-                            adaptiveQuality.goodStreak++;
-                            adaptiveQuality.badStreak = 0;
-                        } else {
-                            adaptiveQuality.badStreak = 0;
-                            adaptiveQuality.goodStreak = 0;
-                        }
-
-                        if (cooldownOk && adaptiveQuality.badStreak >= 8) {
-                            // Degrade gradually.
-                            desktopVisualEffectStep = Math.min(3, desktopVisualEffectStep + 1);
-                            setRuntimePixelRatio((currentRenderPixelRatio || 1) - 0.12);
-                            adaptiveQuality.lastAdjustAt = now;
-                            adaptiveQuality.badStreak = 0;
-                        } else if (cooldownOk && adaptiveQuality.goodStreak >= 45) {
-                            // Recover gradually.
-                            desktopVisualEffectStep = Math.max(1, desktopVisualEffectStep - 1);
-                            setRuntimePixelRatio((currentRenderPixelRatio || 1) + 0.08);
-                            adaptiveQuality.lastAdjustAt = now;
-                            adaptiveQuality.goodStreak = 0;
-                        }
-                    }
-                }
-            }
-
-            if (game.gameStarted && !game.gameOver && !game.paused && ball) {
+            // Per-frame dt-scaled update
+            if (game.running && !game.gameOver && !game.paused && ball) {
                 // 保存原始速度
                 const originalSpeed = config.speed;
                 const originalMoveSpeed = config.moveSpeed;
                 sprintSpeedMultiplier = getSprintMultiplier();
 
-                // 使用固定时间步长更新
-                const fixedSpeed = originalSpeed * sprintSpeedMultiplier * (dt / config.fixedTimeStep);
-                const fixedMoveSpeed = originalMoveSpeed * (1 + (sprintSpeedMultiplier - 1) * sprintMoveSpeedMultiplier / sprintBoostMultiplier) * (dt / config.fixedTimeStep);
+                // dt 标准化：保持不同帧率下的体感一致
+                const stepScale = dt / config.fixedTimeStep;
+                const fixedSpeed = originalSpeed * sprintSpeedMultiplier * stepScale;
+                const fixedMoveSpeed = originalMoveSpeed * (1 + (sprintSpeedMultiplier - 1) * sprintMoveSpeedMultiplier / sprintBoostMultiplier) * stepScale;
 
-                // 使用固定速度更新
                 config.speed = fixedSpeed;
                 config.moveSpeed = fixedMoveSpeed;
                 mobileVisualFrameCounter++;
 
-                const stepScale = dt / config.fixedTimeStep;
                 handleMovement(stepScale);
                 updateRoad();
-                checkCollisions();
+                if (perfHud.enabled) {
+                    const t0 = performance.now();
+                    checkCollisions();
+                    collisionMs = performance.now() - t0;
+                } else {
+                    checkCollisions();
+                }
                 updateBallRollAndTrail(dt, currentTime * 0.001);
 
-                // 恢复原始速度
+                // 恢复原始速度（避免对非step逻辑造成副作用）
                 config.speed = originalSpeed;
                 config.moveSpeed = originalMoveSpeed;
 
@@ -3895,10 +4076,22 @@
             if (renderer && scene && camera) {
                 renderer.render(scene, camera);
             }
+
+            if (perfHud.enabled) {
+                const nowMs = performance.now();
+                perfHud.maybeReport(nowMs, {
+                    frameMs: nowMs - frameStartMs,
+                    collisionMs,
+                    obstaclesCount: obstacles.length,
+                    collectiblesCount: collectibles.length
+                });
+                // Keep UI in sync even if gameplay doesn't call updateUI frequently.
+                updateUI();
+            }
         }
 
         function tryJump() {
-            if (!game.gameStarted || game.gameOver || game.paused || !isGrounded) {
+            if (!game.running || game.gameOver || game.paused || !isGrounded) {
                 return false;
             }
 
@@ -3975,7 +4168,7 @@
             e.preventDefault(); // 防止页面滚动
             touchEndX = e.touches[0].clientX;
 
-            if (isMobile && game.gameStarted && !game.gameOver && !game.paused && ball) {
+            if (isMobile && game.running && !game.gameOver && !game.paused && ball) {
                 const deltaX = touchEndX - touchLastX;
                 touchLastX = touchEndX;
                 const movementScale = (config.roadWidth / window.innerWidth) * 1.15;
@@ -4068,8 +4261,3 @@
 </body>
 
 </html>
-
->>>>>>> 7f5948304a8f1924fe83fb030b701f21abf92255
-"<!-- 2026-04-29 update -->" 
-"<!-- 2026-04-29 update -->" 
-"<!-- 2026-05-03 update -->" 
