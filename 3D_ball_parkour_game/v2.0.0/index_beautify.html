@@ -493,13 +493,21 @@
         // Runtime adaptive quality (desktop-first). Keeps controls smooth by trading a bit of clarity.
         let desktopVisualEffectStep = 1;
         const adaptiveQuality = {
-            enabled: true,
+            enabled: !isMobile,
             minPixelRatio: 1.0,
             maxPixelRatio: 0,
             badStreak: 0,
             goodStreak: 0,
             lastAdjustAt: 0,
             frameMsWindow: []
+        };
+        const perfStats = {
+            lastGenerateMs: 0,
+            pendingSegments: 0,
+            lastSpawnAt: 0,
+            lastRoadMs: 0,
+            adaptivePixelRatio: 0,
+            adaptiveFxStep: 1
         };
 
         // Lightweight perf HUD (opt-in): add ?perf=1 to URL
@@ -524,8 +532,20 @@
                 return sorted[idx];
             }
 
-            function maybeReport(nowMs, { frameMs, collisionMs, obstaclesCount, collectiblesCount }) {
+            function maybeReport(nowMs, stats) {
                 if (!enabled) return '';
+
+                const {
+                    frameMs,
+                    collisionMs,
+                    obstaclesCount,
+                    collectiblesCount,
+                    roadMs = 0,
+                    generateMs = 0,
+                    pendingSegments = 0,
+                    adaptivePixelRatio = 0,
+                    adaptiveFxStep = 1
+                } = stats;
 
                 frameMsWindow.push(frameMs);
                 if (frameMsWindow.length > windowCap) frameMsWindow.shift();
@@ -538,12 +558,23 @@
                 const sorted = frameMsWindow.slice().sort((a, b) => a - b);
                 const avg = sorted.length ? (sorted.reduce((s, v) => s + v, 0) / sorted.length) : 0;
                 const p95 = percentile(sorted, 0.95);
-                lastText = `帧ms(avg/p95): ${avg.toFixed(1)}/${p95.toFixed(1)} | 碰撞ms: ${collisionMs.toFixed(2)} | 障碍/积分: ${obstaclesCount}/${collectiblesCount}`;
+                lastText = `帧ms(avg/p95): ${avg.toFixed(1)}/${p95.toFixed(1)} | 碰撞ms: ${collisionMs.toFixed(2)} | 路段ms: ${roadMs.toFixed(2)} | 生成ms: ${generateMs.toFixed(2)} | 待生成段: ${pendingSegments} | 障碍/积分: ${obstaclesCount}/${collectiblesCount} | DPR: ${adaptivePixelRatio.toFixed(2)} | FX步进: ${adaptiveFxStep}`;
                 return lastText;
             }
 
             return { enabled, maybeReport, get lastText() { return lastText; } };
         })();
+
+        if (perfHud.enabled) {
+            window.__runtimePerfSnapshot = () => ({
+                lastText: perfHud.lastText,
+                perfStats: { ...perfStats },
+                measures: performance.getEntriesByType('measure')
+                    .filter((entry) => entry.name === 'generateObjects')
+                    .slice(-8)
+                    .map((entry) => ({ duration: entry.duration, startTime: entry.startTime }))
+            });
+        }
 
         function clamp01(v) {
             return Math.max(0, Math.min(1, v));
@@ -556,13 +587,63 @@
         function setRuntimePixelRatio(nextPixelRatio) {
             if (!renderer) return;
             const cap = getRenderPixelRatioCap();
-            const maxAllowed = Math.min(window.devicePixelRatio || 1, cap);
+            const adaptiveCap = adaptiveQuality.maxPixelRatio > 0
+                ? Math.min(cap, adaptiveQuality.maxPixelRatio)
+                : cap;
+            const maxAllowed = Math.min(window.devicePixelRatio || 1, adaptiveCap);
             const minAllowed = adaptiveQuality.minPixelRatio;
             const pr = clamp(nextPixelRatio, minAllowed, maxAllowed);
             if (!currentRenderPixelRatio || Math.abs(pr - currentRenderPixelRatio) >= 0.01) {
                 currentRenderPixelRatio = pr;
                 renderer.setPixelRatio(currentRenderPixelRatio);
             }
+            perfStats.adaptivePixelRatio = currentRenderPixelRatio;
+        }
+
+        function updateAdaptiveQuality(frameMs) {
+            if (!adaptiveQuality.enabled || isMobile) return;
+
+            adaptiveQuality.frameMsWindow.push(frameMs);
+            if (adaptiveQuality.frameMsWindow.length > 45) {
+                adaptiveQuality.frameMsWindow.shift();
+            }
+            if (adaptiveQuality.frameMsWindow.length < 15) return;
+
+            const sorted = adaptiveQuality.frameMsWindow.slice().sort((a, b) => a - b);
+            const p95 = sorted[Math.floor((sorted.length - 1) * 0.95)];
+
+            if (p95 > 22) {
+                adaptiveQuality.badStreak++;
+                adaptiveQuality.goodStreak = 0;
+            } else if (p95 < 15) {
+                adaptiveQuality.goodStreak++;
+                adaptiveQuality.badStreak = 0;
+            } else {
+                adaptiveQuality.badStreak = Math.max(0, adaptiveQuality.badStreak - 1);
+                adaptiveQuality.goodStreak = Math.max(0, adaptiveQuality.goodStreak - 1);
+            }
+
+            const nowMs = performance.now();
+            if (nowMs - adaptiveQuality.lastAdjustAt < 900) return;
+
+            const cap = getRenderPixelRatioCap();
+            if (adaptiveQuality.maxPixelRatio <= 0) {
+                adaptiveQuality.maxPixelRatio = cap;
+            }
+
+            if (adaptiveQuality.badStreak >= 6) {
+                adaptiveQuality.badStreak = 0;
+                adaptiveQuality.lastAdjustAt = nowMs;
+                setRuntimePixelRatio((currentRenderPixelRatio || cap) - 0.08);
+                desktopVisualEffectStep = Math.min(3, desktopVisualEffectStep + 1);
+            } else if (adaptiveQuality.goodStreak >= 50) {
+                adaptiveQuality.goodStreak = 0;
+                adaptiveQuality.lastAdjustAt = nowMs;
+                setRuntimePixelRatio((currentRenderPixelRatio || cap) + 0.05);
+                desktopVisualEffectStep = Math.max(1, desktopVisualEffectStep - 1);
+            }
+
+            perfStats.adaptiveFxStep = desktopVisualEffectStep;
         }
 
         if (isMobile) {
@@ -670,8 +751,11 @@
 
             if (refreshPixelRatio || !currentRenderPixelRatio) {
                 updateMobileRenderTuning();
-                currentRenderPixelRatio = Math.min(window.devicePixelRatio || 1, getRenderPixelRatioCap());
-                renderer.setPixelRatio(currentRenderPixelRatio);
+                const cap = getRenderPixelRatioCap();
+                if (adaptiveQuality.maxPixelRatio <= 0) {
+                    adaptiveQuality.maxPixelRatio = cap;
+                }
+                setRuntimePixelRatio(Math.min(window.devicePixelRatio || 1, cap));
             }
 
             renderer.setSize(viewport.width, viewport.height, false);
@@ -776,6 +860,12 @@
         let roadMaterial = null;
         let sharedRoadGeometry = null;
         let vortexTexturePool = [];
+        let vortexRingTexturePool = [];
+        let sharedSparkleTexture = null;
+        const collectibleRayGeometryCache = new Map();
+        let segmentSpawnQueue = [];
+        const collectibleBurstPool = [];
+        let sharedBurstRayGeometry = null;
         const mobileFaceRefreshIntervalMs = mobileLowTier ? 180 : 150;
         let modelLoadingShownAt = 0;
         const minLoadingVisibleMs = isMobile ? 520 : 260;
@@ -916,6 +1006,163 @@
             });
         }
 
+        function disposeObject3D(object, { skipSceneRemove = false } = {}) {
+            if (!object) return;
+
+            if (!skipSceneRemove && object.parent) {
+                object.parent.remove(object);
+            }
+
+            const disposedGeometries = new Set();
+            const disposedMaterials = new Set();
+
+            object.traverse((node) => {
+                if (node.geometry && node.geometry !== sharedBurstRayGeometry) {
+                    let isSharedGeometry = false;
+                    for (const geo of collectibleRayGeometryCache.values()) {
+                        if (node.geometry === geo) {
+                            isSharedGeometry = true;
+                            break;
+                        }
+                    }
+                    if (!isSharedGeometry && !disposedGeometries.has(node.geometry)) {
+                        disposedGeometries.add(node.geometry);
+                        node.geometry.dispose();
+                    }
+                }
+
+                if (!node.material) return;
+
+                const materials = Array.isArray(node.material) ? node.material : [node.material];
+                materials.forEach((material) => {
+                    if (!material || disposedMaterials.has(material)) return;
+                    disposedMaterials.add(material);
+
+                    [
+                        'map',
+                        'lightMap',
+                        'aoMap',
+                        'emissiveMap',
+                        'bumpMap',
+                        'normalMap',
+                        'displacementMap',
+                        'roughnessMap',
+                        'metalnessMap',
+                        'alphaMap',
+                        'envMap'
+                    ].forEach((key) => {
+                        const texture = material[key];
+                        if (!texture || typeof texture.dispose !== 'function') return;
+                        if (texture === sharedSparkleTexture) return;
+                        if (vortexTexturePool.includes(texture) || vortexRingTexturePool.includes(texture)) return;
+                        texture.dispose();
+                    });
+
+                    material.dispose();
+                });
+            });
+        }
+
+        function ensureSparkleTexture() {
+            if (sharedSparkleTexture) return sharedSparkleTexture;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = 128;
+            canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            const c = 64;
+            const gradient = ctx.createRadialGradient(c, c, 0, c, c, 56);
+            gradient.addColorStop(0, 'rgba(255,255,255,1)');
+            gradient.addColorStop(0.35, 'rgba(255,255,255,0.7)');
+            gradient.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 128, 128);
+
+            sharedSparkleTexture = new THREE.CanvasTexture(canvas);
+            sharedSparkleTexture.needsUpdate = true;
+            applyTextureClarity(sharedSparkleTexture);
+            return sharedSparkleTexture;
+        }
+
+        function getCollectibleRayGeometry(length, width, depth) {
+            const key = `${length.toFixed(3)}:${width.toFixed(3)}:${depth.toFixed(3)}`;
+            if (!collectibleRayGeometryCache.has(key)) {
+                const shape = new THREE.Shape();
+                shape.moveTo(0, length / 2);
+                shape.lineTo(width / 2, 0);
+                shape.lineTo(0, -length / 2);
+                shape.lineTo(-width / 2, 0);
+                shape.closePath();
+                collectibleRayGeometryCache.set(key, new THREE.ExtrudeGeometry(shape, {
+                    depth,
+                    bevelEnabled: false
+                }));
+            }
+            return collectibleRayGeometryCache.get(key);
+        }
+
+        function pickVortexRingTexture({ reverse = false, phaseOffset = 0 } = {}) {
+            if (vortexRingTexturePool.length) {
+                return vortexRingTexturePool[Math.floor(Math.random() * vortexRingTexturePool.length)];
+            }
+            return createVortexRingTexture({ reverse, phaseOffset });
+        }
+
+        function enqueueSegmentSpawn(startZ, segmentLength) {
+            segmentSpawnQueue.push({ startZ, segmentLength });
+            perfStats.pendingSegments = segmentSpawnQueue.length;
+        }
+
+        function processSegmentSpawnQueue() {
+            if (!segmentSpawnQueue.length) {
+                perfStats.pendingSegments = 0;
+                return;
+            }
+
+            const job = segmentSpawnQueue.shift();
+            const t0 = performance.now();
+            if (perfHud.enabled) {
+                performance.mark('generateObjects-start');
+            }
+            generateObjects(job.startZ, job.segmentLength);
+            if (perfHud.enabled) {
+                performance.mark('generateObjects-end');
+                performance.measure('generateObjects', 'generateObjects-start', 'generateObjects-end');
+            }
+            perfStats.lastGenerateMs = performance.now() - t0;
+            perfStats.lastSpawnAt = performance.now();
+            perfStats.pendingSegments = segmentSpawnQueue.length;
+        }
+
+        function testDiskSampleCollision(sample, position, effectiveRadius, depthHalf, collideRadiusSq) {
+            const dx = sample.x - position.x;
+            const dy = sample.y - position.y;
+            const radialDistance = Math.hypot(dx, dy);
+            const dz = Math.abs(sample.z - position.z);
+            const radialGap = Math.max(0, radialDistance - effectiveRadius);
+            const depthGap = Math.max(0, dz - depthHalf);
+            return (radialGap * radialGap + depthGap * depthGap) <= collideRadiusSq;
+        }
+
+        function testTorusSampleCollision(sample, position, innerRadius, outerRadius, effectiveDepthHalf, collideRadiusSq) {
+            const dx = sample.x - position.x;
+            const dy = sample.y - position.y;
+            const radialDistance = Math.hypot(dx, dy);
+            const dz = Math.abs(sample.z - position.z);
+
+            let radialGap = 0;
+            if (radialDistance < innerRadius) {
+                const innerPassSlack = Math.min(0.15, innerRadius * 0.15);
+                radialGap = Math.max(0, innerRadius - radialDistance - innerPassSlack);
+            } else if (radialDistance > outerRadius) {
+                const outerPassSlack = Math.min(0.18, outerRadius * 0.12);
+                radialGap = Math.max(0, radialDistance - outerRadius - outerPassSlack);
+            }
+
+            const depthGap = Math.max(0, dz - effectiveDepthHalf);
+            return (radialGap * radialGap + depthGap * depthGap) <= collideRadiusSq;
+        }
+
         function showModelLoading(text = '正在初始化场景...') {
             const loadingEl = document.getElementById('model-loading');
             const textEl = document.getElementById('model-loading-text');
@@ -1039,6 +1286,19 @@
             ballTrailSprites = [];
             ballTrailDirection = null;
             vortexTexturePool = [];
+            vortexRingTexturePool = [];
+            segmentSpawnQueue = [];
+            collectibleBurstPool.length = 0;
+            perfStats.lastGenerateMs = 0;
+            perfStats.pendingSegments = 0;
+            perfStats.lastSpawnAt = 0;
+            perfStats.lastRoadMs = 0;
+            adaptiveQuality.badStreak = 0;
+            adaptiveQuality.goodStreak = 0;
+            adaptiveQuality.lastAdjustAt = 0;
+            adaptiveQuality.frameMsWindow = [];
+            desktopVisualEffectStep = 1;
+            perfStats.adaptiveFxStep = 1;
             keys = {};
             reviveRespawnState = null;
             lastDeathCause = null;
@@ -1127,6 +1387,15 @@
                     vortexTexturePool.push(createVortexTexture());
                 }
             }
+
+            if (vortexRingTexturePool.length === 0) {
+                const ringPoolSize = isMobile ? 2 : 4;
+                for (let i = 0; i < ringPoolSize; i++) {
+                    vortexRingTexturePool.push(createVortexRingTexture({ reverse: i % 2 === 1, phaseOffset: i * 0.4 }));
+                }
+            }
+
+            ensureSparkleTexture();
 
             // 更新UI
             updateUI();
@@ -1817,7 +2086,10 @@
             // 重置阴影，避免影响同一画布的后续绘制
             ctx.shadowBlur = 0;
 
-            texture.needsUpdate = true;
+            if (faceData.lastEyeOpen !== eyeOpen) {
+                faceData.lastEyeOpen = eyeOpen;
+                texture.needsUpdate = true;
+            }
         }
 
         function createVortexTexture() {
@@ -2065,8 +2337,8 @@
         }
 
         function createDonutObstacle(obstacle) {
-            const ringTextureA = createVortexRingTexture({ reverse: false, phaseOffset: 0 });
-            const ringTextureB = createVortexRingTexture({ reverse: true, phaseOffset: Math.PI / 8 });
+            const ringTextureA = pickVortexRingTexture({ reverse: false, phaseOffset: 0 });
+            const ringTextureB = pickVortexRingTexture({ reverse: true, phaseOffset: Math.PI / 8 });
 
             const innerRadius = 0.58;
             const outerRadius = 0.92;
@@ -2864,37 +3136,9 @@
                     }
                 );
 
-            const createPointedRayGeometry = (length, width, depth) => {
-                const shape = new THREE.Shape();
-                shape.moveTo(0, length / 2);
-                shape.lineTo(width / 2, 0);
-                shape.lineTo(0, -length / 2);
-                shape.lineTo(-width / 2, 0);
-                shape.closePath();
-                return new THREE.ExtrudeGeometry(shape, {
-                    depth,
-                    bevelEnabled: false
-                });
-            };
+            const createPointedRayGeometry = (length, width, depth) => getCollectibleRayGeometry(length, width, depth);
 
-            const createSoftSparkleTexture = () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = 128;
-                canvas.height = 128;
-                const ctx = canvas.getContext('2d');
-                const c = 64;
-
-                const gradient = ctx.createRadialGradient(c, c, 0, c, c, 56);
-                gradient.addColorStop(0, 'rgba(255,255,255,1)');
-                gradient.addColorStop(0.35, 'rgba(255,255,255,0.7)');
-                gradient.addColorStop(1, 'rgba(255,255,255,0)');
-                ctx.fillStyle = gradient;
-                ctx.fillRect(0, 0, 128, 128);
-
-                const tex = new THREE.CanvasTexture(canvas);
-                tex.needsUpdate = true;
-                return tex;
-            };
+            const sparkleTexture = ensureSparkleTexture();
 
             const rayMaterial = new THREE.MeshStandardMaterial({
                 color: collectiblePalette.rayColor,
@@ -2934,7 +3178,6 @@
             star.add(center);
 
             // 白色光效：小范围柔光粒子环绕，不做包裹球
-            const sparkleTexture = createSoftSparkleTexture();
             const sparkles = [];
             const sparkleCount = isMobile ? 4 : 6;
             for (let i = 0; i < sparkleCount; i++) {
@@ -2970,32 +3213,55 @@
             return star;
         }
 
+        function getBurstRayGeometry() {
+            if (!sharedBurstRayGeometry) {
+                sharedBurstRayGeometry = new THREE.BoxGeometry(0.04, 0.35, 0.04);
+            }
+            return sharedBurstRayGeometry;
+        }
+
         function spawnCollectibleBurst(position, collectibleType = 'normal') {
-            const burst = new THREE.Group();
             const isBlueCollectible = collectibleType === 'blue';
             const isRedCollectible = collectibleType === 'red';
             const burstColor = isBlueCollectible ? 0xd9faff : (isRedCollectible ? 0xffd6d6 : 0xfff0ad);
             const burstEmissive = isBlueCollectible ? 0x58dcff : (isRedCollectible ? 0xff6b6b : 0xffc65b);
             const count = isMobile ? 7 : 10;
-            for (let i = 0; i < count; i++) {
-                const ray = new THREE.Mesh(
-                    new THREE.BoxGeometry(0.04, 0.3 + Math.random() * 0.2, 0.04),
-                    new THREE.MeshStandardMaterial({
-                        color: burstColor,
-                        emissive: burstEmissive,
-                        emissiveIntensity: 1,
-                        transparent: true,
-                        opacity: 0.95
-                    })
-                );
+            const burstRayGeometry = getBurstRayGeometry();
+            let burst = collectibleBurstPool.pop();
+
+            if (!burst) {
+                burst = new THREE.Group();
+                for (let i = 0; i < count; i++) {
+                    const ray = new THREE.Mesh(
+                        burstRayGeometry,
+                        new THREE.MeshStandardMaterial({
+                            color: burstColor,
+                            emissive: burstEmissive,
+                            emissiveIntensity: 1,
+                            transparent: true,
+                            opacity: 0.95
+                        })
+                    );
+                    burst.add(ray);
+                }
+            } else {
+                burst.visible = true;
+            }
+
+            burst.children.forEach((ray, i) => {
+                ray.visible = true;
+                ray.material.color.setHex(burstColor);
+                ray.material.emissive.setHex(burstEmissive);
+                ray.material.opacity = 0.95;
                 const angle = (i / count) * Math.PI * 2;
                 ray.position.set(Math.cos(angle) * 0.1, Math.sin(angle) * 0.1, (Math.random() - 0.5) * 0.1);
                 ray.rotation.z = angle;
+                ray.scale.set(1, 0.85 + Math.random() * 0.2, 1);
                 ray.userData.vx = Math.cos(angle) * (0.02 + Math.random() * 0.03);
                 ray.userData.vy = Math.sin(angle) * (0.02 + Math.random() * 0.03);
                 ray.userData.life = 0.5 + Math.random() * 0.25;
-                burst.add(ray);
-            }
+            });
+
             burst.position.copy(position);
             burst.userData.life = 0.7;
             collectibleBursts.push(burst);
@@ -3085,9 +3351,11 @@
                 roadSegments.push(first);
                 scene.add(first);
 
-                // 生成障碍物和积分
-                generateObjects(first.position.z, segmentLength);
+                // 生成障碍物和积分（分帧处理，避免路段回收时单帧尖峰）
+                enqueueSegmentSpawn(first.position.z, segmentLength);
             }
+
+            processSegmentSpawnQueue();
 
             // 移动障碍物
             for (let i = obstacles.length - 1; i >= 0; i--) {
@@ -3167,8 +3435,10 @@
                 }
 
                 if (obstacles[i].position.z > 10) {
-                    scene.remove(obstacles[i]);
+                    const obstacleToRemove = obstacles[i];
+                    scene.remove(obstacleToRemove);
                     obstacles.splice(i, 1);
+                    disposeObject3D(obstacleToRemove, { skipSceneRemove: true });
                 }
             }
 
@@ -3229,8 +3499,10 @@
                     }
                     // 移除悬浮标签
                     removeCollectibleProbLabel(collectibles[i]);
-                    scene.remove(collectibles[i]);
+                    const collectibleToRemove = collectibles[i];
+                    scene.remove(collectibleToRemove);
                     collectibles.splice(i, 1);
+                    disposeObject3D(collectibleToRemove, { skipSceneRemove: true });
                 }
             }
 
@@ -3248,6 +3520,8 @@
                 if (burst.userData.life <= 0 || burst.position.z > 12) {
                     scene.remove(burst);
                     collectibleBursts.splice(i, 1);
+                    burst.visible = false;
+                    collectibleBurstPool.push(burst);
                 }
             }
         }
@@ -3357,21 +3631,9 @@
                     const collideRadius = Math.max(0.01, ballRadius - sphereForgiveness);
                     const collideRadiusSq = collideRadius * collideRadius;
 
-                    const checkDiskCollisionAt = (sample) => {
-                        const dx = sample.x - position.x;
-                        const dy = sample.y - position.y;
-                        const radialDistance = Math.hypot(dx, dy);
-                        const dz = Math.abs(sample.z - position.z);
-
-                        const radialGap = Math.max(0, radialDistance - effectiveRadius);
-                        const depthGap = Math.max(0, dz - depthHalf);
-                        const surfaceDistanceSq = radialGap * radialGap + depthGap * depthGap;
-                        return surfaceDistanceSq <= collideRadiusSq;
-                    };
-
                     for (let si = 0; si < sampleCount; si++) {
                         const sample = samples[si === 2 ? 2 : (si === 1 ? 1 : 0)];
-                        if (checkDiskCollisionAt(sample)) {
+                        if (testDiskSampleCollision(sample, position, effectiveRadius, depthHalf, collideRadiusSq)) {
                             collisionDetected = true;
                             break;
                         }
@@ -3424,29 +3686,9 @@
                     const torusCollideRadius = Math.max(0.01, ballRadius - torusForgiveness);
                     const collideRadiusSq = torusCollideRadius * torusCollideRadius;
 
-                    const checkTorusCollisionAt = (sample) => {
-                        const dx = sample.x - position.x;
-                        const dy = sample.y - position.y;
-                        const radialDistance = Math.hypot(dx, dy);
-                        const dz = Math.abs(sample.z - position.z);
-
-                        let radialGap = 0;
-                        if (radialDistance < innerRadius) {
-                            const innerPassSlack = Math.min(0.15, innerRadius * 0.15);
-                            radialGap = Math.max(0, innerRadius - radialDistance - innerPassSlack);
-                        } else if (radialDistance > outerRadius) {
-  const outerPassSlack = Math.min(0.18, outerRadius * 0.12);
-  radialGap = Math.max(0, radialDistance - outerRadius - outerPassSlack);
-                        }
-
-                        const depthGap = Math.max(0, dz - effectiveDepthHalf);
-                        const surfaceDistanceSq = radialGap * radialGap + depthGap * depthGap;
-                        return surfaceDistanceSq <= collideRadiusSq;
-                    };
-
                     for (let si = 0; si < sampleCount; si++) {
                         const sample = samples[si === 2 ? 2 : (si === 1 ? 1 : 0)];
-                        if (checkTorusCollisionAt(sample)) {
+                        if (testTorusSampleCollision(sample, position, innerRadius, outerRadius, effectiveDepthHalf, collideRadiusSq)) {
                             collisionDetected = true;
                             break;
                         }
@@ -3493,13 +3735,10 @@
 
                 // 积分是球体，计算球体边界
                 const collectibleRadius = (collectible.userData.collectibleRadius || 0.3) * scale.x;
+                const radiusSum = ballRadius + collectibleRadius;
+                const radiusSumSq = radiusSum * radiusSum;
 
-                // 计算两个球体中心距离
-                const distance = ballPosition.distanceTo(position);
-
-                // 严格判定：小球半径 + 积分球半径 = 碰撞
-                // 只要两个球体表面接触即算收集
-                if (distance < ballRadius + collectibleRadius) {
+                if (ballPosition.distanceToSquared(position) < radiusSumSq) {
                     const collectibleType = collectible.userData.collectibleType || 'normal';
                     const scoreValue = Number.isFinite(collectible.userData.scoreValue)
                         ? collectible.userData.scoreValue
@@ -3517,6 +3756,7 @@
                         removeCollectibleProbLabel(collectible);
                         scene.remove(collectible);
                         collectibles.splice(i, 1);
+                        disposeObject3D(collectible, { skipSceneRemove: true });
                         checkLevelUp();
                         continue;
                     }
@@ -3540,9 +3780,9 @@
                                 lastCollisionBallPos: lastCollisionBallPos ? { ...lastCollisionBallPos } : null
                             };
                             removeCollectibleProbLabel(collectible);
-                            // 移除物体后触发结束逻辑，这会展示复活选项（若有）
                             scene.remove(collectible);
                             collectibles.splice(i, 1);
+                            disposeObject3D(collectible, { skipSceneRemove: true });
                             endGame();
                             return; // 退出当前检测循环分支
                         }
@@ -3562,6 +3802,7 @@
                     removeCollectibleProbLabel(collectible);
                     scene.remove(collectible);
                     collectibles.splice(i, 1);
+                    disposeObject3D(collectible, { skipSceneRemove: true });
 
                     // 检查升级
                     checkLevelUp();
@@ -4020,8 +4261,9 @@
 
             // 限制时间差，防止大延迟导致的跳跃
             const dt = Math.min(deltaTime, 0.1);
-            const frameStartMs = perfHud.enabled ? performance.now() : 0;
+            const frameStartMs = performance.now();
             let collisionMs = 0;
+            let roadMs = 0;
 
             // Per-frame dt-scaled update
             if (game.running && !game.gameOver && !game.paused && ball) {
@@ -4040,7 +4282,13 @@
                 mobileVisualFrameCounter++;
 
                 handleMovement(stepScale);
-                updateRoad();
+                if (perfHud.enabled) {
+                    const roadStartMs = performance.now();
+                    updateRoad();
+                    roadMs = performance.now() - roadStartMs;
+                } else {
+                    updateRoad();
+                }
                 if (perfHud.enabled) {
                     const t0 = performance.now();
                     checkCollisions();
@@ -4077,13 +4325,28 @@
                 renderer.render(scene, camera);
             }
 
+            const frameMs = performance.now() - frameStartMs;
+            if (game.running && !game.gameOver && !game.paused && ball) {
+                updateAdaptiveQuality(frameMs);
+            }
+            perfStats.lastRoadMs = roadMs;
+            perfStats.adaptiveFxStep = desktopVisualEffectStep;
+            if (renderer) {
+                perfStats.adaptivePixelRatio = currentRenderPixelRatio || renderer.getPixelRatio();
+            }
+
             if (perfHud.enabled) {
                 const nowMs = performance.now();
                 perfHud.maybeReport(nowMs, {
-                    frameMs: nowMs - frameStartMs,
+                    frameMs,
                     collisionMs,
                     obstaclesCount: obstacles.length,
-                    collectiblesCount: collectibles.length
+                    collectiblesCount: collectibles.length,
+                    roadMs,
+                    generateMs: perfStats.lastGenerateMs,
+                    pendingSegments: perfStats.pendingSegments,
+                    adaptivePixelRatio: perfStats.adaptivePixelRatio,
+                    adaptiveFxStep: perfStats.adaptiveFxStep
                 });
                 // Keep UI in sync even if gameplay doesn't call updateUI frequently.
                 updateUI();
