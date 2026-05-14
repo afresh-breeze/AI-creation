@@ -492,6 +492,7 @@
 
         // Runtime adaptive quality (desktop-first). Keeps controls smooth by trading a bit of clarity.
         let desktopVisualEffectStep = 1;
+        let farFieldLabelProjectStep = 1;
         const adaptiveQuality = {
             enabled: !isMobile,
             minPixelRatio: 1.0,
@@ -503,11 +504,19 @@
         };
         const perfStats = {
             lastGenerateMs: 0,
+            lastSpawnPlanMs: 0,
             pendingSegments: 0,
+            pendingSpawnWork: 0,
             lastSpawnAt: 0,
             lastRoadMs: 0,
+            lastRenderMs: 0,
+            lastLogicMs: 0,
             adaptivePixelRatio: 0,
-            adaptiveFxStep: 1
+            adaptiveFxStep: 1,
+            segmentBacklog: 0,
+            renderCalls: 0,
+            renderTriangles: 0,
+            renderPoints: 0
         };
 
         // Lightweight perf HUD (opt-in): add ?perf=1 to URL
@@ -542,9 +551,17 @@
                     collectiblesCount,
                     roadMs = 0,
                     generateMs = 0,
+                    spawnPlanMs = 0,
+                    renderMs = 0,
+                    logicMs = 0,
                     pendingSegments = 0,
+                    pendingSpawnWork = 0,
+                    segmentBacklog = 0,
                     adaptivePixelRatio = 0,
-                    adaptiveFxStep = 1
+                    adaptiveFxStep = 1,
+                    renderCalls = 0,
+                    renderTriangles = 0,
+                    renderPoints = 0
                 } = stats;
 
                 frameMsWindow.push(frameMs);
@@ -558,7 +575,7 @@
                 const sorted = frameMsWindow.slice().sort((a, b) => a - b);
                 const avg = sorted.length ? (sorted.reduce((s, v) => s + v, 0) / sorted.length) : 0;
                 const p95 = percentile(sorted, 0.95);
-                lastText = `帧ms(avg/p95): ${avg.toFixed(1)}/${p95.toFixed(1)} | 碰撞ms: ${collisionMs.toFixed(2)} | 路段ms: ${roadMs.toFixed(2)} | 生成ms: ${generateMs.toFixed(2)} | 待生成段: ${pendingSegments} | 障碍/积分: ${obstaclesCount}/${collectiblesCount} | DPR: ${adaptivePixelRatio.toFixed(2)} | FX步进: ${adaptiveFxStep}`;
+                lastText = `帧ms(avg/p95): ${avg.toFixed(1)}/${p95.toFixed(1)} | 逻辑ms: ${logicMs.toFixed(2)} | 渲染ms: ${renderMs.toFixed(2)} | 碰撞ms: ${collisionMs.toFixed(2)} | 路段ms: ${roadMs.toFixed(2)} | 生成ms: ${generateMs.toFixed(2)} | 规划ms: ${spawnPlanMs.toFixed(2)} | 待生成段: ${pendingSegments} | 待创建: ${pendingSpawnWork} | 积压段: ${segmentBacklog} | 障碍/积分: ${obstaclesCount}/${collectiblesCount} | Draw: ${renderCalls}/${renderTriangles}/${renderPoints} | DPR: ${adaptivePixelRatio.toFixed(2)} | FX步进: ${adaptiveFxStep}`;
                 return lastText;
             }
 
@@ -570,9 +587,9 @@
                 lastText: perfHud.lastText,
                 perfStats: { ...perfStats },
                 measures: performance.getEntriesByType('measure')
-                    .filter((entry) => entry.name === 'generateObjects')
-                    .slice(-8)
-                    .map((entry) => ({ duration: entry.duration, startTime: entry.startTime }))
+                    .filter((entry) => entry.name === 'generateObjects' || entry.name === 'generateObjects-plan' || entry.name === 'segmentSpawn-backlog')
+                    .slice(-12)
+                    .map((entry) => ({ name: entry.name, duration: entry.duration, startTime: entry.startTime }))
             });
         }
 
@@ -612,10 +629,10 @@
             const sorted = adaptiveQuality.frameMsWindow.slice().sort((a, b) => a - b);
             const p95 = sorted[Math.floor((sorted.length - 1) * 0.95)];
 
-            if (p95 > 22) {
+            if (p95 > 18) {
                 adaptiveQuality.badStreak++;
                 adaptiveQuality.goodStreak = 0;
-            } else if (p95 < 15) {
+            } else if (p95 < 14) {
                 adaptiveQuality.goodStreak++;
                 adaptiveQuality.badStreak = 0;
             } else {
@@ -626,24 +643,18 @@
             const nowMs = performance.now();
             if (nowMs - adaptiveQuality.lastAdjustAt < 900) return;
 
-            const cap = getRenderPixelRatioCap();
-            if (adaptiveQuality.maxPixelRatio <= 0) {
-                adaptiveQuality.maxPixelRatio = cap;
-            }
-
-            if (adaptiveQuality.badStreak >= 6) {
+            if (adaptiveQuality.badStreak >= 5) {
                 adaptiveQuality.badStreak = 0;
                 adaptiveQuality.lastAdjustAt = nowMs;
-                setRuntimePixelRatio((currentRenderPixelRatio || cap) - 0.08);
-                desktopVisualEffectStep = Math.min(3, desktopVisualEffectStep + 1);
-            } else if (adaptiveQuality.goodStreak >= 50) {
+                desktopVisualEffectStep = Math.min(4, desktopVisualEffectStep + 1);
+            } else if (adaptiveQuality.goodStreak >= 45) {
                 adaptiveQuality.goodStreak = 0;
                 adaptiveQuality.lastAdjustAt = nowMs;
-                setRuntimePixelRatio((currentRenderPixelRatio || cap) + 0.05);
                 desktopVisualEffectStep = Math.max(1, desktopVisualEffectStep - 1);
             }
 
             perfStats.adaptiveFxStep = desktopVisualEffectStep;
+            farFieldLabelProjectStep = desktopVisualEffectStep;
         }
 
         if (isMobile) {
@@ -864,6 +875,13 @@
         let sharedSparkleTexture = null;
         const collectibleRayGeometryCache = new Map();
         let segmentSpawnQueue = [];
+        let segmentSpawnWorkQueue = [];
+        const segmentSpawnBudgetMs = isMobile ? 4 : 5;
+        const segmentSpawnPlanBudgetMs = isMobile ? 1.5 : 2;
+        const entityBucketSize = 10;
+        let roadMotionStamp = 0;
+        const obstacleBuckets = new Map();
+        const collectibleBuckets = new Map();
         const collectibleBurstPool = [];
         let sharedBurstRayGeometry = null;
         const mobileFaceRefreshIntervalMs = mobileLowTier ? 180 : 150;
@@ -1084,6 +1102,90 @@
             return sharedSparkleTexture;
         }
 
+        const collectibleMaterialTemplates = {};
+        let candleWaxMaterial = null;
+        let candleWickMaterial = null;
+
+        function getCollectibleMaterialTemplates(type) {
+            if (!collectibleMaterialTemplates.normal) {
+                const makeType = (rayColor, rayEmissive, rayEmissiveIntensity, centerColor, centerEmissive, centerIntensity, sparkleColor) => ({
+                    ray: new THREE.MeshStandardMaterial({
+                        color: rayColor,
+                        emissive: rayEmissive,
+                        emissiveIntensity: rayEmissiveIntensity,
+                        roughness: 0.12,
+                        metalness: 0.22,
+                        transparent: true,
+                        opacity: 0.98
+                    }),
+                    center: new THREE.MeshStandardMaterial({
+                        color: centerColor,
+                        emissive: centerEmissive,
+                        emissiveIntensity: centerIntensity,
+                        transparent: true,
+                        opacity: 0.9
+                    }),
+                    sparkle: new THREE.SpriteMaterial({
+                        map: ensureSparkleTexture(),
+                        color: sparkleColor,
+                        transparent: true,
+                        opacity: 0.36,
+                        depthWrite: false,
+                        blending: THREE.AdditiveBlending
+                    })
+                });
+                collectibleMaterialTemplates.normal = makeType(0xffffff, 0xfff4d7, 1.2, 0xffffff, 0xffedb0, 0.95, 0xffffff);
+                collectibleMaterialTemplates.blue = makeType(0xddfbff, 0x50d8ff, 1.15, 0xeeffff, 0x60dfff, 1.05, 0x8cecff);
+                collectibleMaterialTemplates.red = makeType(0xffc8c8, 0xff6b6b, 1.25, 0xffe6e6, 0xff8a8a, 1.1, 0xffc2c2);
+            }
+            return collectibleMaterialTemplates[type] || collectibleMaterialTemplates.normal;
+        }
+
+        function getCandleWaxMaterial() {
+            if (!candleWaxMaterial) {
+                candleWaxMaterial = new THREE.MeshStandardMaterial({
+                    color: 0xfff7c7,
+                    roughness: 0.76,
+                    metalness: 0.02,
+                    emissive: 0xfff3c4,
+                    emissiveIntensity: 0.12
+                });
+            }
+            return candleWaxMaterial;
+        }
+
+        function getCandleWickMaterial() {
+            if (!candleWickMaterial) {
+                candleWickMaterial = new THREE.MeshStandardMaterial({ color: 0x2d1c12, roughness: 1, metalness: 0 });
+            }
+            return candleWickMaterial;
+        }
+
+        function attachCollectibleSparkles(star, collectibleType = 'normal') {
+            if (star.userData.sparkles && star.userData.sparkles.length) return;
+            const templates = getCollectibleMaterialTemplates(collectibleType);
+            const sparkles = [];
+            const sparkleCount = isMobile ? 4 : 6;
+            for (let i = 0; i < sparkleCount; i++) {
+                const sparkle = new THREE.Sprite(templates.sparkle.clone());
+                sparkle.userData.phase = Math.random() * Math.PI * 2;
+                sparkle.userData.radius = 0.22 + Math.random() * 0.14;
+                sparkle.userData.speed = 1 + Math.random() * 0.9;
+                sparkle.userData.heightOffset = (Math.random() - 0.5) * 0.16;
+                sparkle.userData.size = 0.11 + Math.random() * 0.07;
+                sparkle.scale.setScalar(sparkle.userData.size);
+                star.add(sparkle);
+                sparkles.push(sparkle);
+            }
+            star.userData.sparkles = sparkles;
+            star.userData.opacityNodes = star.userData.opacityNodes || [];
+            sparkles.forEach((sparkle) => {
+                if (sparkle.material && typeof sparkle.material.opacity === 'number') {
+                    star.userData.opacityNodes.push(sparkle);
+                }
+            });
+        }
+
         function getCollectibleRayGeometry(length, width, depth) {
             const key = `${length.toFixed(3)}:${width.toFixed(3)}:${depth.toFixed(3)}`;
             if (!collectibleRayGeometryCache.has(key)) {
@@ -1108,30 +1210,209 @@
             return createVortexRingTexture({ reverse, phaseOffset });
         }
 
+        function getEntityBucketKey(z) {
+            return Math.floor(z / entityBucketSize);
+        }
+
+        function getEntityBucketRange(minZ, maxZ) {
+            const minKey = getEntityBucketKey(minZ);
+            const maxKey = getEntityBucketKey(maxZ);
+            return { minKey, maxKey };
+        }
+
+        function getBallEntityMoveWindow() {
+            const segmentLength = config.roadLength / config.segments;
+            let moveMinZ = emergenceStartZ - entityBucketSize;
+            if (roadSegments.length) {
+                const tailZ = roadSegments[roadSegments.length - 1].position.z;
+                moveMinZ = Math.min(moveMinZ, tailZ - segmentLength * 2);
+            }
+            return {
+                moveMinZ,
+                moveMaxZ: 12
+            };
+        }
+
+        function getBallEntityWindows(ballZ) {
+            const zWindowBehind = 8 + config.speed * 8;
+            const zWindowAhead = 5 + config.speed * 4;
+            const visualBehind = 16 + config.speed * 6;
+            const visualAhead = 6 + config.speed * 3;
+            return {
+                collisionMinZ: ballZ - zWindowBehind,
+                collisionMaxZ: ballZ + zWindowAhead,
+                visualMinZ: ballZ - visualBehind,
+                visualMaxZ: ballZ + visualAhead
+            };
+        }
+
+        function registerEntityInBucket(entity, buckets) {
+            const key = getEntityBucketKey(entity.position.z);
+            if (!buckets.has(key)) {
+                buckets.set(key, []);
+            }
+            buckets.get(key).push(entity);
+            entity.userData.entityBucketKey = key;
+        }
+
+        function unregisterEntityFromBucket(entity, buckets) {
+            const key = entity.userData.entityBucketKey;
+            if (key === undefined) return;
+            const bucket = buckets.get(key);
+            if (bucket) {
+                const idx = bucket.indexOf(entity);
+                if (idx >= 0) bucket.splice(idx, 1);
+                if (!bucket.length) buckets.delete(key);
+            }
+            delete entity.userData.entityBucketKey;
+        }
+
+        function syncEntityBucket(entity, buckets) {
+            const nextKey = getEntityBucketKey(entity.position.z);
+            if (entity.userData.entityBucketKey === nextKey) return;
+            unregisterEntityFromBucket(entity, buckets);
+            if (!buckets.has(nextKey)) {
+                buckets.set(nextKey, []);
+            }
+            buckets.get(nextKey).push(entity);
+            entity.userData.entityBucketKey = nextKey;
+        }
+
+        function forEachEntityInBucketRange(buckets, minZ, maxZ, callback) {
+            const { minKey, maxKey } = getEntityBucketRange(minZ, maxZ);
+            for (let key = minKey; key <= maxKey; key++) {
+                const bucket = buckets.get(key);
+                if (!bucket) continue;
+                for (let i = 0; i < bucket.length; i++) {
+                    callback(bucket[i]);
+                }
+            }
+        }
+
+        function registerObstacle(obstacle) {
+            obstacles.push(obstacle);
+            scene.add(obstacle);
+            registerEntityInBucket(obstacle, obstacleBuckets);
+        }
+
+        function registerCollectible(collectible) {
+            collectibles.push(collectible);
+            scene.add(collectible);
+            registerEntityInBucket(collectible, collectibleBuckets);
+        }
+
+        function removeObstacleEntity(obstacle) {
+            unregisterEntityFromBucket(obstacle, obstacleBuckets);
+            scene.remove(obstacle);
+            const idx = obstacles.indexOf(obstacle);
+            if (idx >= 0) obstacles.splice(idx, 1);
+            disposeObject3D(obstacle, { skipSceneRemove: true });
+        }
+
+        function removeCollectibleEntity(collectible) {
+            unregisterEntityFromBucket(collectible, collectibleBuckets);
+            scene.remove(collectible);
+            const idx = collectibles.indexOf(collectible);
+            if (idx >= 0) collectibles.splice(idx, 1);
+            disposeObject3D(collectible, { skipSceneRemove: true });
+        }
+
+        function clearEntityBuckets() {
+            obstacleBuckets.clear();
+            collectibleBuckets.clear();
+        }
+
         function enqueueSegmentSpawn(startZ, segmentLength) {
             segmentSpawnQueue.push({ startZ, segmentLength });
             perfStats.pendingSegments = segmentSpawnQueue.length;
         }
 
         function processSegmentSpawnQueue() {
-            if (!segmentSpawnQueue.length) {
-                perfStats.pendingSegments = 0;
+            perfStats.segmentBacklog = segmentSpawnQueue.length;
+            perfStats.pendingSegments = segmentSpawnQueue.length;
+            perfStats.pendingSpawnWork = segmentSpawnWorkQueue.length;
+            if (!segmentSpawnQueue.length && !segmentSpawnWorkQueue.length) {
                 return;
             }
 
-            const job = segmentSpawnQueue.shift();
-            const t0 = performance.now();
-            if (perfHud.enabled) {
-                performance.mark('generateObjects-start');
+            const budgetStart = performance.now();
+            let backlogMarked = false;
+            let planBudgetUsed = 0;
+
+            while (segmentSpawnQueue.length || segmentSpawnWorkQueue.length) {
+                if (performance.now() - budgetStart >= segmentSpawnBudgetMs) {
+                    break;
+                }
+
+                if (!segmentSpawnWorkQueue.length && segmentSpawnQueue.length) {
+                    if (planBudgetUsed >= segmentSpawnPlanBudgetMs) {
+                        break;
+                    }
+                    const job = segmentSpawnQueue.shift();
+                    const planStart = performance.now();
+                    if (perfHud.enabled) {
+                        performance.mark('generateObjects-plan-start');
+                    }
+                    const plan = buildSegmentSpawnPlan(job.startZ, job.segmentLength);
+                    const planMs = performance.now() - planStart;
+                    perfStats.lastSpawnPlanMs = planMs;
+                    planBudgetUsed += planMs;
+                    if (perfHud.enabled) {
+                        performance.mark('generateObjects-plan-end');
+                        performance.measure('generateObjects-plan', 'generateObjects-plan-start', 'generateObjects-plan-end');
+                    }
+                    const spawnPressure = segmentSpawnQueue.length > 2 || segmentSpawnWorkQueue.length > 6;
+                    for (let i = 0; i < plan.length; i++) {
+                        const work = plan[i];
+                        if (spawnPressure && work.kind === 'collectibleSparkles') {
+                            continue;
+                        }
+                        segmentSpawnWorkQueue.push(work);
+                    }
+                    perfStats.pendingSegments = segmentSpawnQueue.length;
+                    perfStats.pendingSpawnWork = segmentSpawnWorkQueue.length;
+                    if (segmentSpawnQueue.length > 2 && perfHud.enabled && !backlogMarked) {
+                        performance.mark('segmentSpawn-backlog');
+                        backlogMarked = true;
+                    }
+                }
+
+                if (!segmentSpawnWorkQueue.length) {
+                    break;
+                }
+
+                const work = segmentSpawnWorkQueue.shift();
+                if (segmentSpawnQueue.length > 2 && work.kind === 'collectibleSparkles') {
+                    continue;
+                }
+                const t0 = performance.now();
+                if (perfHud.enabled) {
+                    performance.mark('generateObjects-start');
+                }
+                applySpawnWorkItem(work);
+                if (work.kind === 'collectible') {
+                    const spawnPressure = segmentSpawnQueue.length > 2 || segmentSpawnWorkQueue.length > 8;
+                    if (!spawnPressure) {
+                        segmentSpawnWorkQueue.push({
+                            kind: 'collectibleSparkles',
+                            x: work.x,
+                            z: work.z,
+                            collectibleType: work.collectibleType || work.options?.collectibleType || 'normal'
+                        });
+                    }
+                }
+                if (perfHud.enabled) {
+                    performance.mark('generateObjects-end');
+                    performance.measure('generateObjects', 'generateObjects-start', 'generateObjects-end');
+                }
+                perfStats.lastGenerateMs = performance.now() - t0;
+                perfStats.lastSpawnAt = performance.now();
+                perfStats.pendingSpawnWork = segmentSpawnWorkQueue.length;
             }
-            generateObjects(job.startZ, job.segmentLength);
-            if (perfHud.enabled) {
-                performance.mark('generateObjects-end');
-                performance.measure('generateObjects', 'generateObjects-start', 'generateObjects-end');
-            }
-            perfStats.lastGenerateMs = performance.now() - t0;
-            perfStats.lastSpawnAt = performance.now();
+
+            perfStats.segmentBacklog = segmentSpawnQueue.length;
             perfStats.pendingSegments = segmentSpawnQueue.length;
+            perfStats.pendingSpawnWork = segmentSpawnWorkQueue.length;
         }
 
         function testDiskSampleCollision(sample, position, effectiveRadius, depthHalf, collideRadiusSq) {
@@ -1288,16 +1569,27 @@
             vortexTexturePool = [];
             vortexRingTexturePool = [];
             segmentSpawnQueue = [];
+            segmentSpawnWorkQueue = [];
+            clearEntityBuckets();
             collectibleBurstPool.length = 0;
             perfStats.lastGenerateMs = 0;
+            perfStats.lastSpawnPlanMs = 0;
             perfStats.pendingSegments = 0;
+            perfStats.pendingSpawnWork = 0;
+            perfStats.segmentBacklog = 0;
             perfStats.lastSpawnAt = 0;
             perfStats.lastRoadMs = 0;
+            perfStats.lastRenderMs = 0;
+            perfStats.lastLogicMs = 0;
+            perfStats.renderCalls = 0;
+            perfStats.renderTriangles = 0;
+            perfStats.renderPoints = 0;
             adaptiveQuality.badStreak = 0;
             adaptiveQuality.goodStreak = 0;
             adaptiveQuality.lastAdjustAt = 0;
             adaptiveQuality.frameMsWindow = [];
             desktopVisualEffectStep = 1;
+            farFieldLabelProjectStep = 1;
             perfStats.adaptiveFxStep = 1;
             keys = {};
             reviveRespawnState = null;
@@ -1413,7 +1705,7 @@
         // 添加背景星星效果
         function addBackgroundStars() {
             const starsGeometry = new THREE.BufferGeometry();
-            const starsCount = isMobile ? 50 : 1000;
+            const starsCount = isMobile ? 50 : 650;
 
             const positions = new Float32Array(starsCount * 3);
             const colors = new Float32Array(starsCount * 3);
@@ -2686,22 +2978,14 @@
 
             const waxBody = new THREE.Mesh(
                 new THREE.LatheGeometry(points, 24),
-                new THREE.MeshStandardMaterial({
-                    // 奶油黄/香草黄：更明亮但不刺眼
-                    color: 0xfff7c7,
-                    roughness: 0.76,
-                    metalness: 0.02,
-                    // 轻微“抬亮暗部”，避免底部背光处发灰
-                    emissive: 0xfff3c4,
-                    emissiveIntensity: 0.12
-                })
+                getCandleWaxMaterial()
             );
             obstacle.add(waxBody);
 
             // 中心组件位置根据熔池深度进行对应重置下移
             const wick = new THREE.Mesh(
                 new THREE.CylinderGeometry(0.015, 0.018, 0.12, 8),
-                new THREE.MeshStandardMaterial({ color: 0x2d1c12, roughness: 1, metalness: 0 })
+                getCandleWickMaterial()
             );
             wick.position.y = 0.48; // 适应新的深熔池0.42底部 (上升0.06一半身位)
             obstacle.add(wick);
@@ -2718,6 +3002,7 @@
             // 增加真实的并且受限传播距离的点光源，避免引发深层多点光照剔除缓慢卡顿
             const candleLight = new THREE.PointLight(0xff9900, 0.7, 4.0); // 4.0 的极短漫射距离非常关键！
             candleLight.position.set(0, 0.72, 0); // 下沉使得主光源更近池面
+            candleLight.visible = false;
             obstacle.add(candleLight);
 
             obstacle.userData.collider = { type: 'cylinder', radius: 0.48, halfHeight: 0.5 };
@@ -2777,297 +3062,248 @@
             obstacle.userData.vortexPhase = Math.random() * Math.PI * 2;
         }
 
+        function rollCollectibleType() {
+            const r = Math.random();
+            const redP = redCollectibleSpawnProbability;
+            const blueP = blueCollectibleSpawnProbability;
+            if (r < redP) return 'red';
+            if (r < redP + blueP) return 'blue';
+            return 'normal';
+        }
+
+        function applySpawnWorkItem(work) {
+            if (work.kind === 'collectibleSparkles') {
+                const key = getEntityBucketKey(work.z);
+                const bucket = collectibleBuckets.get(key);
+                if (bucket) {
+                    for (let i = 0; i < bucket.length; i++) {
+                        const collectible = bucket[i];
+                        if (Math.abs(collectible.position.x - work.x) < 0.05 && Math.abs(collectible.position.z - work.z) < 0.6) {
+                            attachCollectibleSparkles(collectible, work.collectibleType || collectible.userData.collectibleType);
+                            break;
+                        }
+                    }
+                }
+                return;
+            }
+            if (work.kind === 'obstacle') {
+                const obstacle = createObstacle(work.isWide);
+                obstacle.position.set(work.x, obstacle.userData.hiddenY, work.z);
+                if (work.isWide) {
+                    if (obstacle.userData.type === 'donut') {
+                        obstacle.scale.setScalar(1.88);
+                    } else if (obstacle.userData.type === 'candle') {
+                        obstacle.scale.setScalar(2);
+                    } else {
+                        obstacle.scale.set(4, 2, 2);
+                    }
+                } else {
+                    obstacle.scale.set(2, 2, 2);
+                    if (obstacle.userData.type === 'vortex') {
+                        const sizeFactor = obstacle.userData.sizeFactor || 1;
+                        obstacle.scale.multiplyScalar(sizeFactor);
+                    }
+                }
+                registerObstacle(obstacle);
+                if (work.ringCollectible && obstacle.userData.type === 'donut') {
+                    applySpawnWorkItem(work.ringCollectible);
+                }
+                return;
+            }
+
+            const collectibleType = work.collectibleType || work.options?.collectibleType || 'normal';
+            const collectible = createCollectible(collectibleType, { withSparkles: false });
+            collectible.userData.finalY = work.y;
+            collectible.userData.hiddenY = -1.8;
+            collectible.userData.fadeStartZ = work.fadeStartZ;
+            collectible.userData.fadeEndZ = work.fadeEndZ;
+            collectible.userData.baseScale = work.baseScale;
+            collectible.userData.collected = false;
+            collectible.userData.collectibleType = collectibleType;
+            collectible.userData.scoreValue = 10;
+            if (collectibleType === 'red') {
+                const prob = work.redDeathProbability ?? redDeathProbabilityOptions[Math.floor(Math.random() * redDeathProbabilityOptions.length)];
+                collectible.userData.deathProbability = prob;
+                collectible.userData.scoreValue = Math.round(prob * 1000);
+                try {
+                    const label = document.createElement('div');
+                    label.className = 'prob-label prob-label--red';
+                    label.textContent = `${Math.round(prob * 100)}%`;
+                    label.style.position = 'absolute';
+                    label.style.pointerEvents = 'none';
+                    document.body.appendChild(label);
+                    collectible.userData.probLabelEl = label;
+                } catch (e) {}
+            }
+            collectible.position.set(work.x, collectible.userData.hiddenY, work.z);
+            collectible.scale.set(work.baseScale, work.baseScale, work.baseScale);
+            registerCollectible(collectible);
+            currentLevelCollectibleSpawned++;
+        }
+
         // 生成障碍物和积分
-        function generateObjects(startZ, segmentLength) {
+        function buildSegmentSpawnPlan(startZ, segmentLength) {
+            const plan = [];
             const columns = [-4.5, -1.5, 1.5, 4.5];
             const availableColumns = [...columns];
             let spawnedObstacleCount = 0;
             const segmentCollectibleSpots = [];
+            const segmentObstacleColumns = [];
             const collectibleMinRowGap = 4.2;
             const collectibleNearRowGap = 6.2;
             const collectibleMinXGapWhenNearRow = 2.2;
-            const rollCollectibleType = () => {
-                const r = Math.random();
-                const redP = redCollectibleSpawnProbability;
-                const blueP = blueCollectibleSpawnProbability;
-                if (r < redP) return 'red';
-                if (r < redP + blueP) return 'blue';
-                return 'normal';
-            };
 
             const canPlaceCollectibleAt = (x, z, { allowObstacleOverlap = false } = {}) => {
                 if (z >= -15) return false;
-
-                // 与障碍物保持基本安全距离
                 if (!allowObstacleOverlap) {
-                    for (const obstacle of obstacles) {
+                    let blocked = false;
+                    forEachEntityInBucketRange(obstacleBuckets, z - 3.2, z + 3.2, (obstacle) => {
+                        if (blocked) return;
                         if (Math.abs(z - obstacle.position.z) < 3.2) {
-                            return false;
+                            blocked = true;
                         }
-                    }
+                    });
+                    if (blocked) return false;
                 }
-
-                // 同一路段内：避免两个积分几乎在同一“水平排”导致无法同时收集
                 for (const spot of segmentCollectibleSpots) {
                     const dz = Math.abs(z - spot.z);
                     const dx = Math.abs(x - spot.x);
-
-                    // 前后太接近，直接禁止
-                    if (dz < collectibleMinRowGap) {
-                        return false;
-                    }
-
-                    // 前后较近时，若横向也近则同样禁止
-                    if (dz < collectibleNearRowGap && dx < collectibleMinXGapWhenNearRow) {
-                        return false;
-                    }
+                    if (dz < collectibleMinRowGap) return false;
+                    if (dz < collectibleNearRowGap && dx < collectibleMinXGapWhenNearRow) return false;
                 }
-
                 return true;
             };
 
-            const createCollectibleAt = (
-                x,
-                z,
-                y = 1,
-                baseScale = 1.2,
-                fadeStartZ = emergenceStartZ,
-                fadeEndZ = emergenceEndZ,
-                options = {}
-            ) => {
-                if (!canPlaceCollectibleAt(x, z, options)) {
-                    return null;
-                }
+            const queueCollectibleAt = (x, z, y = 1, baseScale = 1.2, fadeStartZ = emergenceStartZ, fadeEndZ = emergenceEndZ, options = {}) => {
+                if (!canPlaceCollectibleAt(x, z, options)) return null;
                 const collectibleType = options.collectibleType || 'normal';
-                const collectible = createCollectible(collectibleType);
-                collectible.userData.finalY = y;
-                collectible.userData.hiddenY = -1.8;
-                collectible.userData.fadeStartZ = fadeStartZ;
-                collectible.userData.fadeEndZ = fadeEndZ;
-                collectible.userData.baseScale = baseScale;
-                collectible.userData.collected = false;
-                collectible.userData.collectibleType = collectibleType;
-                collectible.userData.scoreValue = 10;
-                // 若为红色积分，随机分配死亡概率与对应分值，并创建悬浮概率标签
+                const work = {
+                    kind: 'collectible',
+                    x,
+                    z,
+                    y,
+                    baseScale,
+                    fadeStartZ,
+                    fadeEndZ,
+                    options,
+                    collectibleType
+                };
                 if (collectibleType === 'red') {
-                    const prob = redDeathProbabilityOptions[Math.floor(Math.random() * redDeathProbabilityOptions.length)];
-                    collectible.userData.deathProbability = prob; // 例如 0.05 表示 5%
-                    // 分值按百分比映射：5% -> 50, 10% -> 100, ... (即 prob * 1000)
-                    collectible.userData.scoreValue = Math.round(prob * 1000);
-                    try {
-                        const label = document.createElement('div');
-                        label.className = 'prob-label prob-label--red';
-                        label.textContent = `${Math.round(prob * 100)}%`;
-                        label.style.position = 'absolute';
-                        label.style.pointerEvents = 'none';
-                        document.body.appendChild(label);
-                        collectible.userData.probLabelEl = label;
-                    } catch (e) {
-                        // ignore DOM creation errors in non-browser contexts
-                    }
+                    work.redDeathProbability = redDeathProbabilityOptions[Math.floor(Math.random() * redDeathProbabilityOptions.length)];
                 }
-                collectible.position.set(x, collectible.userData.hiddenY, z);
-                collectible.scale.set(baseScale, baseScale, baseScale);
-                collectibles.push(collectible);
-                scene.add(collectible);
+                plan.push(work);
                 segmentCollectibleSpots.push({ x, z });
-                currentLevelCollectibleSpawned++;
-                return collectible;
+                return work;
             };
 
-            // 根据关卡计算障碍物生成概率（关卡越高，概率越高）
             const obstacleChance = Math.min(0.98, 0.7 + (game.level - 1) * 0.08);
-
-            // 每个路段生成1-2个障碍物
-            // 关卡3开始才增加障碍物数量，避免难度陡升
             const obstacleCount = game.level <= 2 ? 1 : (game.level <= 3 ? (Math.random() > 0.5 ? 2 : 1) : (Math.random() > 0.3 ? 2 : 1));
-
-            // 计算障碍物的均匀分布位置（减小间距，增加密度）
             const spacing = segmentLength / (obstacleCount + 2);
 
             for (let i = 0; i < obstacleCount && availableColumns.length > 0; i++) {
                 if (Math.random() < obstacleChance) {
                     const isWide = Math.random() > 0.5 && availableColumns.length >= 2;
-
                     if (isWide) {
                         const index = Math.floor(Math.random() * (availableColumns.length - 1));
                         const x1 = availableColumns[index];
                         const x2 = availableColumns[index + 1];
                         const x = (x1 + x2) / 2;
                         availableColumns.splice(index, 2);
-
-                        // 均匀分布的Z位置，添加随机偏移，避免过于整齐
                         const z = startZ - (i + 1) * spacing + (Math.random() - 0.5) * (spacing * 0.5);
-                        // 确保障碍物不会生成在小球初始位置附近，距离更远
                         if (z < -20) {
-                            const obstacle = createObstacle(true);
-                            obstacle.position.set(x, obstacle.userData.hiddenY, z);
-                            if (obstacle.userData.type === 'donut') {
-                                // 恢复正圆：使用等比缩放
-                                obstacle.scale.setScalar(1.88);
-                            } else if (obstacle.userData.type === 'candle') {
-                                obstacle.scale.setScalar(2);
-                            } else {
-                                obstacle.scale.set(4, 2, 2);
+                            const ringCollectibleChance = game.level >= 3 ? 0.65 : 0.5;
+                            const work = { kind: 'obstacle', isWide: true, x, z };
+                            if (Math.random() < ringCollectibleChance) {
+                                work.ringCollectible = {
+                                    kind: 'collectible',
+                                    x,
+                                    z: z + (Math.random() - 0.5) * 0.6,
+                                    y: 2.55,
+                                    baseScale: 1.1,
+                                    fadeStartZ: emergenceStartZ,
+                                    fadeEndZ: emergenceEndZ,
+                                    options: { allowObstacleOverlap: true },
+                                    collectibleType: rollCollectibleType()
+                                };
                             }
-                            obstacles.push(obstacle);
-                            scene.add(obstacle);
+                            plan.push(work);
+                            segmentObstacleColumns.push(x);
                             spawnedObstacleCount++;
-
-                            // 允许积分出现在圆环中间（圆环中心孔）
-                            if (obstacle.userData.type === 'donut') {
-                                const ringCenterY = obstacle.userData.finalY ?? 2.55;
-                                const ringCollectibleChance = game.level >= 3 ? 0.65 : 0.5;
-                                if (Math.random() < ringCollectibleChance) {
-                                    createCollectibleAt(
-                                        x,
-                                        z + (Math.random() - 0.5) * 0.6,
-                                        ringCenterY,
-                                        1.1,
-                                        emergenceStartZ,
-                                        emergenceEndZ,
-                                        { allowObstacleOverlap: true, collectibleType: rollCollectibleType() }
-                                    );
-                                }
-                            }
                         }
                     } else {
                         const index = Math.floor(Math.random() * availableColumns.length);
                         const x = availableColumns[index];
                         availableColumns.splice(index, 1);
-
-                        // 均匀分布的Z位置，添加随机偏移，避免过于整齐
                         const z = startZ - (i + 1) * spacing + (Math.random() - 0.5) * (spacing * 0.5);
-                        // 确保障碍物不会生成在小球初始位置附近，距离更远
                         if (z < -20) {
-                            const obstacle = createObstacle(false);
-                            obstacle.position.set(x, obstacle.userData.hiddenY, z);
-                            obstacle.scale.set(2, 2, 2);
-                            if (obstacle.userData.type === 'vortex') {
-                                const sizeFactor = obstacle.userData.sizeFactor || 1;
-                                obstacle.scale.multiplyScalar(sizeFactor);
-                            }
-                            obstacles.push(obstacle);
-                            scene.add(obstacle);
+                            plan.push({ kind: 'obstacle', isWide: false, x, z });
+                            segmentObstacleColumns.push(x);
                             spawnedObstacleCount++;
                         }
                     }
                 }
             }
 
-            // 障碍物保底：避免出现长段路一个障碍都没有
             if (spawnedObstacleCount === 0) {
                 const forcedZ = Math.min(-22, startZ - segmentLength * (0.58 + Math.random() * 0.16));
                 const forceWide = availableColumns.length >= 2 && Math.random() > 0.45;
                 let forcedX = 0;
-
                 if (forceWide) {
                     const src = availableColumns.length >= 2 ? availableColumns : columns;
                     const index = Math.floor(Math.random() * (src.length - 1));
-                    const x1 = src[index];
-                    const x2 = src[index + 1];
-                    forcedX = (x1 + x2) / 2;
+                    forcedX = (src[index] + src[index + 1]) / 2;
                 } else {
                     const src = availableColumns.length > 0 ? availableColumns : columns;
-                    const index = Math.floor(Math.random() * src.length);
-                    forcedX = src[index];
+                    forcedX = src[Math.floor(Math.random() * src.length)];
                 }
-
-                const forcedObstacle = createObstacle(forceWide);
-                forcedObstacle.position.set(forcedX, forcedObstacle.userData.hiddenY, forcedZ);
-                if (forceWide) {
-                    if (forcedObstacle.userData.type === 'donut') {
-                        forcedObstacle.scale.setScalar(1.88);
-                    } else if (forcedObstacle.userData.type === 'candle') {
-                        forcedObstacle.scale.setScalar(2);
-                    } else {
-                        forcedObstacle.scale.set(4, 2, 2);
-                    }
-                } else {
-                    forcedObstacle.scale.set(2, 2, 2);
-                    if (forcedObstacle.userData.type === 'vortex') {
-                        const sizeFactor = forcedObstacle.userData.sizeFactor || 1;
-                        forcedObstacle.scale.multiplyScalar(sizeFactor);
-                    }
+                const forcedWork = { kind: 'obstacle', isWide: forceWide, x: forcedX, z: forcedZ };
+                if (Math.random() < 0.72) {
+                    forcedWork.ringCollectible = {
+                        kind: 'collectible',
+                        x: forcedX,
+                        z: forcedZ + (Math.random() - 0.5) * 0.5,
+                        y: 2.55,
+                        baseScale: 1.1,
+                        fadeStartZ: emergenceStartZ,
+                        fadeEndZ: emergenceEndZ,
+                        options: { allowObstacleOverlap: true },
+                        collectibleType: rollCollectibleType()
+                    };
                 }
-                obstacles.push(forcedObstacle);
-                scene.add(forcedObstacle);
-
-                // 保底障碍如果是圆环，也给一个中心积分机会
-                if (forcedObstacle.userData.type === 'donut' && Math.random() < 0.72) {
-                    const ringCenterY = forcedObstacle.userData.finalY ?? 2.55;
-                    createCollectibleAt(
-                        forcedX,
-                        forcedZ + (Math.random() - 0.5) * 0.5,
-                        ringCenterY,
-                        1.1,
-                        emergenceStartZ,
-                        emergenceEndZ,
-                        { allowObstacleOverlap: true, collectibleType: rollCollectibleType() }
-                    );
-                }
+                plan.push(forcedWork);
+                segmentObstacleColumns.push(forcedX);
             }
 
-            // 生成积分（增加积分生成概率）
-            // 关卡越高，积分生成概率越高
             const collectibleChance = Math.min(0.98, 0.9 + (game.level - 1) * 0.02);
-            if (Math.random() < collectibleChance) { // 随关卡增加的积分生成概率
-                // 选择积分的X位置
+            if (Math.random() < collectibleChance) {
                 let x;
                 if (availableColumns.length > 0) {
-                    // 从剩余列中随机选择
-                    const index = Math.floor(Math.random() * availableColumns.length);
-                    x = availableColumns[index];
+                    x = availableColumns[Math.floor(Math.random() * availableColumns.length)];
                 } else {
-                    // 如果没有剩余列，从所有列中随机选择
-                    const index = Math.floor(Math.random() * columns.length);
-                    x = columns[index];
+                    x = columns[Math.floor(Math.random() * columns.length)];
                 }
-
-                // 积分放在路段中间，添加随机偏移
                 const z = startZ - segmentLength / 2 + (Math.random() - 0.5) * 3;
-                createCollectibleAt(
-                    x,
-                    z,
-                    1,
-                    1.2,
-                    emergenceStartZ,
-                    emergenceEndZ,
-                    { collectibleType: rollCollectibleType() }
-                );
+                queueCollectibleAt(x, z, 1, 1.2, emergenceStartZ, emergenceEndZ, { collectibleType: rollCollectibleType() });
             }
 
-            // 第四关及以上，额外增加积分生成机会
-            if (game.level >= 4 && Math.random() < 0.5) { // 50% 概率额外生成一个积分
-                // 选择积分的X位置（与之前不同的列）
-                let x;
-                const usedColumns = new Set();
-                // 收集已使用的列
-                obstacles.forEach(obstacle => {
-                    usedColumns.add(obstacle.position.x);
-                });
-                // 收集可用的列
-                const possibleColumns = columns.filter(col => !usedColumns.has(col));
-
-                if (possibleColumns.length > 0) {
-                    const index = Math.floor(Math.random() * possibleColumns.length);
-                    x = possibleColumns[index];
-                } else {
-                    const index = Math.floor(Math.random() * columns.length);
-                    x = columns[index];
-                }
-
-                // 积分放在路段中，与第一个积分位置不同
+            if (game.level >= 4 && Math.random() < 0.5) {
+                const usedColumns = new Set(segmentObstacleColumns);
+                obstacles.forEach((obstacle) => usedColumns.add(obstacle.position.x));
+                const possibleColumns = columns.filter((col) => !usedColumns.has(col));
+                const x = possibleColumns.length > 0
+                    ? possibleColumns[Math.floor(Math.random() * possibleColumns.length)]
+                    : columns[Math.floor(Math.random() * columns.length)];
                 const z = startZ - segmentLength / 2 + (Math.random() - 0.5) * 6;
-                createCollectibleAt(
-                    x,
-                    z,
-                    1,
-                    1.2,
-                    emergenceStartZ,
-                    emergenceEndZ,
-                    { collectibleType: rollCollectibleType() }
-                );
+                queueCollectibleAt(x, z, 1, 1.2, emergenceStartZ, emergenceEndZ, { collectibleType: rollCollectibleType() });
+            }
+
+            return plan;
+        }
+
+        function generateObjects(startZ, segmentLength) {
+            const plan = buildSegmentSpawnPlan(startZ, segmentLength);
+            for (let i = 0; i < plan.length; i++) {
+                applySpawnWorkItem(plan[i]);
             }
         }
 
@@ -3107,48 +3343,15 @@
         }
 
         // 创建积分
-        function createCollectible(collectibleType = 'normal') {
+        function createCollectible(collectibleType = 'normal', options = {}) {
+            const withSparkles = options.withSparkles !== false;
             const star = new THREE.Group();
             const isBlueCollectible = collectibleType === 'blue';
             const isRedCollectible = collectibleType === 'red';
-            const collectiblePalette = isBlueCollectible
-                ? {
-                    rayColor: 0xddfbff,
-                    rayEmissive: 0x50d8ff,
-                    centerColor: 0xeeffff,
-                    centerEmissive: 0x60dfff,
-                    sparkleColor: 0x8cecff
-                }
-                : (isRedCollectible
-                    ? {
-                        rayColor: 0xffc8c8,
-                        rayEmissive: 0xff6b6b,
-                        centerColor: 0xffe6e6,
-                        centerEmissive: 0xff8a8a,
-                        sparkleColor: 0xffc2c2
-                    }
-                    : {
-                        rayColor: 0xffffff,
-                        rayEmissive: 0xfff4d7,
-                        centerColor: 0xffffff,
-                        centerEmissive: 0xffedb0,
-                        sparkleColor: 0xffffff
-                    }
-                );
+            const templates = getCollectibleMaterialTemplates(collectibleType);
 
             const createPointedRayGeometry = (length, width, depth) => getCollectibleRayGeometry(length, width, depth);
-
-            const sparkleTexture = ensureSparkleTexture();
-
-            const rayMaterial = new THREE.MeshStandardMaterial({
-                color: collectiblePalette.rayColor,
-                emissive: collectiblePalette.rayEmissive,
-                emissiveIntensity: isBlueCollectible ? 1.15 : (isRedCollectible ? 1.25 : 1.2),
-                roughness: 0.12,
-                metalness: 0.22,
-                transparent: true,
-                opacity: 0.98
-            });
+            const rayMaterial = templates.ray.clone();
 
             const rays = [
                 { width: 0.08, length: 0.92, z: 0, rot: 0 },
@@ -3167,46 +3370,20 @@
 
             const center = new THREE.Mesh(
                 new THREE.SphereGeometry(0.08, 12, 12),
-                new THREE.MeshStandardMaterial({
-                    color: collectiblePalette.centerColor,
-                    emissive: collectiblePalette.centerEmissive,
-                    emissiveIntensity: isBlueCollectible ? 1.05 : (isRedCollectible ? 1.1 : 0.95),
-                    transparent: true,
-                    opacity: 0.9
-                })
+                templates.center.clone()
             );
             star.add(center);
 
-            // 白色光效：小范围柔光粒子环绕，不做包裹球
-            const sparkles = [];
-            const sparkleCount = isMobile ? 4 : 6;
-            for (let i = 0; i < sparkleCount; i++) {
-                const sparkle = new THREE.Sprite(
-                    new THREE.SpriteMaterial({
-                        map: sparkleTexture,
-                        color: collectiblePalette.sparkleColor,
-                        transparent: true,
-                        opacity: 0.36,
-                        depthWrite: false,
-                        blending: THREE.AdditiveBlending
-                    })
-                );
-                sparkle.userData.phase = Math.random() * Math.PI * 2;
-                sparkle.userData.radius = 0.22 + Math.random() * 0.14;
-                sparkle.userData.speed = 1 + Math.random() * 0.9;
-                sparkle.userData.heightOffset = (Math.random() - 0.5) * 0.16;
-                sparkle.userData.size = 0.11 + Math.random() * 0.07;
-                sparkle.scale.setScalar(sparkle.userData.size);
-                star.add(sparkle);
-                sparkles.push(sparkle);
-            }
-            star.userData.sparkles = sparkles;
+            star.userData.sparkles = [];
             star.userData.opacityNodes = [];
             star.traverse((node) => {
                 if (node.material && typeof node.material.opacity === 'number') {
                     star.userData.opacityNodes.push(node);
                 }
             });
+            if (withSparkles) {
+                attachCollectibleSparkles(star, collectibleType);
+            }
 
             star.userData.collectibleRadius = 0.26;
             star.userData.collectibleType = collectibleType;
@@ -3295,6 +3472,167 @@
             }
         }
 
+        function updateObstacleOnRoad(obstacle, nowMs, nowSec, entityWindows, shouldUpdateVisualFx) {
+            obstacle.userData.roadMotionStamp = roadMotionStamp;
+            obstacle.position.z += config.speed;
+            syncEntityBucket(obstacle, obstacleBuckets);
+            const riseStartZ = emergenceStartZ;
+            const riseEndZ = emergenceEndZ;
+            const progress = smoothstep01(Math.max(0, Math.min(1, (obstacle.position.z - riseStartZ) / (riseEndZ - riseStartZ))));
+            obstacle.position.y = obstacle.userData.hiddenY +
+                (obstacle.userData.finalY - obstacle.userData.hiddenY) * progress;
+
+            const updateObstacleVisualFx = shouldUpdateVisualFx && (!entityWindows || (
+                obstacle.position.z >= entityWindows.visualMinZ &&
+                obstacle.position.z <= entityWindows.visualMaxZ
+            ));
+            if (obstacle.userData.type === 'candle' && obstacle.userData.flameLight) {
+                const inVisual = !!entityWindows &&
+                    obstacle.position.z >= entityWindows.visualMinZ &&
+                    obstacle.position.z <= entityWindows.visualMaxZ;
+                obstacle.userData.flameLight.visible = inVisual;
+                if (updateObstacleVisualFx) {
+                    const t = nowSec * 10;
+                    const phase = obstacle.userData.flamePhase;
+                    const flicker = Math.sin(t + phase) * 0.1 + Math.sin(t * 1.5 + phase * 2) * 0.1;
+                    obstacle.userData.flameLight.intensity = 0.6 + flicker;
+                }
+            }
+
+            if (updateObstacleVisualFx && obstacle.userData.type === 'vortex' && obstacle.userData.vortexTexture) {
+                const phase = obstacle.userData.vortexPhase || 0;
+                const spin = 0.036;
+                obstacle.rotation.z += spin;
+                obstacle.userData.vortexTexture.rotation += spin * 1.55;
+                const breathe = 0.85 + 0.15 * Math.sin(nowSec * 6.6 + phase);
+                obstacle.userData.vortexTexture.offset.x = 0;
+                obstacle.userData.vortexTexture.offset.y = 0;
+                const vf = obstacle.userData.vortexFront;
+                const vb = obstacle.userData.vortexBack;
+                if (vf && vf.material) {
+                    vf.material.emissiveIntensity = 1.05 + 0.35 * breathe;
+                }
+                if (vb && vb.material) {
+                    vb.material.emissiveIntensity = 0.95 + 0.28 * breathe;
+                }
+            }
+
+            if (updateObstacleVisualFx && obstacle.userData.type === 'donut' && obstacle.userData.ringTextureA && obstacle.userData.ringTextureB) {
+                const phase = obstacle.userData.ringPhase || 0;
+                const spin = 0.036;
+                obstacle.rotation.z += spin * 0.45;
+
+                obstacle.userData.ringTextureA.rotation += spin * 1.55;
+                obstacle.userData.ringTextureA.offset.x = 0;
+                obstacle.userData.ringTextureA.offset.y = 0;
+
+                obstacle.userData.ringTextureB.rotation -= spin * 1.55;
+                obstacle.userData.ringTextureB.offset.x = 0;
+                obstacle.userData.ringTextureB.offset.y = 0;
+
+                const breathe = 0.85 + 0.15 * Math.sin(nowSec * 6.6 + phase);
+                const rfA = obstacle.userData.ringFrontA;
+                const rbA = obstacle.userData.ringBackA;
+                const rfB = obstacle.userData.ringFrontB;
+                const rbB = obstacle.userData.ringBackB;
+                if (rfA && rfA.material) {
+                    rfA.material.emissiveIntensity = 1.05 + 0.35 * breathe;
+                }
+                if (rbA && rbA.material) {
+                    rbA.material.emissiveIntensity = 0.95 + 0.28 * breathe;
+                }
+                if (rfB && rfB.material) {
+                    rfB.material.emissiveIntensity = 0.9 + 0.3 * (1 - breathe * 0.75);
+                }
+                if (rbB && rbB.material) {
+                    rbB.material.emissiveIntensity = 0.82 + 0.24 * (1 - breathe * 0.75);
+                }
+            }
+
+            if (updateObstacleVisualFx && obstacle.userData.type === 'faceBlock' && obstacle.userData.blinkFace) {
+                if (!isMobile || nowMs >= (obstacle.userData.nextFaceRefreshAt || 0)) {
+                    drawBlinkFace(obstacle.userData.blinkFace, nowMs);
+                    if (isMobile) {
+                        obstacle.userData.nextFaceRefreshAt = nowMs + mobileFaceRefreshIntervalMs;
+                    }
+                }
+            }
+
+            return obstacle.position.z > 10;
+        }
+
+        function updateCollectibleOnRoad(collectible, nowMs, nowSec, entityWindows, shouldUpdateVisualFx, shouldProjectLabels) {
+            collectible.userData.roadMotionStamp = roadMotionStamp;
+            collectible.position.z += config.speed;
+            syncEntityBucket(collectible, collectibleBuckets);
+            const fadeStartZ = collectible.userData.fadeStartZ ?? emergenceStartZ;
+            const fadeEndZ = collectible.userData.fadeEndZ ?? emergenceEndZ;
+            const zProgress = getEmergenceProgress(collectible.position.z);
+            const localProgress = Math.max(0, Math.min(1, (collectible.position.z - fadeStartZ) / (fadeEndZ - fadeStartZ)));
+            const appearProgress = smoothstep01(Math.min(zProgress, localProgress));
+            const hiddenY = collectible.userData.hiddenY ?? -1.8;
+            const finalY = collectible.userData.finalY ?? 1;
+            collectible.position.y = hiddenY + (finalY - hiddenY) * appearProgress;
+            collectible.rotation.y += 0.015;
+            const updateCollectibleVisualFx = shouldUpdateVisualFx && (!entityWindows || (
+                collectible.position.z >= entityWindows.visualMinZ &&
+                collectible.position.z <= entityWindows.visualMaxZ
+            ));
+            if (updateCollectibleVisualFx) {
+                const pulse = 0.92 + Math.sin(nowMs * 0.006 + collectible.position.x * 0.4) * 0.1;
+                const baseScale = collectible.userData.baseScale ?? 1.2;
+                const fadeScale = 0.55 + appearProgress * 0.45;
+                collectible.scale.set(pulse * baseScale * fadeScale, pulse * baseScale * fadeScale, pulse * baseScale * fadeScale);
+                const sparkles = collectible.userData.sparkles || [];
+                sparkles.forEach((sparkle, idx) => {
+                    const angle = nowSec * sparkle.userData.speed + sparkle.userData.phase;
+                    sparkle.position.x = Math.cos(angle) * sparkle.userData.radius;
+                    sparkle.position.y = Math.sin(angle * 1.2) * 0.05 + sparkle.userData.heightOffset;
+                    sparkle.position.z = Math.sin(angle) * sparkle.userData.radius * 0.15;
+                    const twinkle = 0.26 + (0.18 * Math.sin(nowSec * 5 + idx));
+                    const sparkleProgress = Math.max(0, (appearProgress - 0.2) / 0.6);
+                    sparkle.material.opacity = twinkle * sparkleProgress;
+                    const sizePulse = 0.95 + 0.15 * Math.sin(nowSec * 3.4 + idx);
+                    sparkle.scale.setScalar(sparkle.userData.size * sizePulse);
+                });
+
+                const opacityNodes = collectible.userData.opacityNodes || [];
+                opacityNodes.forEach((node) => {
+                    if (!(collectible.userData.sparkles || []).includes(node)) {
+                        node.material.opacity = appearProgress * 0.98;
+                    }
+                });
+                if (shouldProjectLabels) {
+                    try {
+                        const labelEl = collectible.userData.probLabelEl;
+                        if (labelEl && camera) {
+                            tmpProjectVec3.copy(collectible.position).project(camera);
+                            const x = (tmpProjectVec3.x * 0.5 + 0.5) * window.innerWidth;
+                            const y = (-tmpProjectVec3.y * 0.5 + 0.5) * window.innerHeight;
+                            const bobOffset = Math.sin(collectible.rotation.y * 3.2 + nowSec * 2.2) * 2;
+                            labelEl.style.left = `${x}px`;
+                            labelEl.style.top = `${y - 38 + bobOffset}px`;
+                            labelEl.style.transform = 'translate(-50%,-50%)';
+                            labelEl.style.opacity = Math.max(0, Math.min(1, appearProgress)).toString();
+                        }
+                    } catch (e) {}
+                }
+            }
+            return collectible.position.z > 10;
+        }
+
+        function sweepMissedRoadEntities(entities, moveWindow, updateFn, toRemove) {
+            for (let i = 0; i < entities.length; i++) {
+                const entity = entities[i];
+                if (entity.userData.roadMotionStamp === roadMotionStamp) continue;
+                const z = entity.position.z;
+                if (z < moveWindow.moveMinZ || z > moveWindow.moveMaxZ) continue;
+                if (updateFn(entity)) {
+                    toRemove.push(entity);
+                }
+            }
+        }
+
         // 更新道路
         function updateRoad() {
             if (game.gameOver) return;
@@ -3357,153 +3695,41 @@
 
             processSegmentSpawnQueue();
 
-            // 移动障碍物
-            for (let i = obstacles.length - 1; i >= 0; i--) {
-                obstacles[i].position.z += config.speed;
-                const riseStartZ = emergenceStartZ;
-                const riseEndZ = emergenceEndZ;
-                const progress = smoothstep01(Math.max(0, Math.min(1, (obstacles[i].position.z - riseStartZ) / (riseEndZ - riseStartZ))));
-                obstacles[i].position.y = obstacles[i].userData.hiddenY +
-                    (obstacles[i].userData.finalY - obstacles[i].userData.hiddenY) * progress;
+            const entityWindows = ball ? getBallEntityWindows(ball.position.z) : null;
+            const moveWindow = getBallEntityMoveWindow();
+            const obstaclesToRemove = [];
+            const collectiblesToRemove = [];
+            const labelProjectStep = isMobile ? mobileVisualEffectStep : farFieldLabelProjectStep;
+            const shouldProjectLabels = labelProjectStep <= 1 || (mobileVisualFrameCounter % labelProjectStep === 0);
+            roadMotionStamp += 1;
 
-                const obstacle = obstacles[i];
-                if (shouldUpdateVisualFx && obstacle.userData.type === 'candle' && obstacle.userData.flameLight) {
-                    // 更新点光源闪烁，赋予照明层面的真实动态感
-                    const t = nowSec * 10;
-                    const phase = obstacle.userData.flamePhase;
-                    const flicker = Math.sin(t + phase) * 0.1 + Math.sin(t * 1.5 + phase * 2) * 0.1;
-                    obstacle.userData.flameLight.intensity = 0.6 + flicker;
+            forEachEntityInBucketRange(obstacleBuckets, moveWindow.moveMinZ, moveWindow.moveMaxZ, (obstacle) => {
+                if (updateObstacleOnRoad(obstacle, nowMs, nowSec, entityWindows, shouldUpdateVisualFx)) {
+                    obstaclesToRemove.push(obstacle);
                 }
-
-                if (shouldUpdateVisualFx && obstacle.userData.type === 'vortex' && obstacle.userData.vortexTexture) {
-                    const phase = obstacle.userData.vortexPhase || 0;
-                    const spin = 0.036;
-                    obstacle.rotation.z += spin;
-                    obstacle.userData.vortexTexture.rotation += spin * 1.55;
-                    const breathe = 0.85 + 0.15 * Math.sin(nowSec * 6.6 + phase);
-                    obstacle.userData.vortexTexture.offset.x = 0;
-                    obstacle.userData.vortexTexture.offset.y = 0;
-                    const vf = obstacle.userData.vortexFront;
-                    const vb = obstacle.userData.vortexBack;
-                    if (vf && vf.material) {
-                        vf.material.emissiveIntensity = 1.05 + 0.35 * breathe;
-                    }
-                    if (vb && vb.material) {
-                        vb.material.emissiveIntensity = 0.95 + 0.28 * breathe;
-                    }
-                }
-
-                if (shouldUpdateVisualFx && obstacle.userData.type === 'donut' && obstacle.userData.ringTextureA && obstacle.userData.ringTextureB) {
-                    const phase = obstacle.userData.ringPhase || 0;
-                    const spin = 0.036;
-                    obstacle.rotation.z += spin * 0.45;
-
-                    obstacle.userData.ringTextureA.rotation += spin * 1.55;
-                    obstacle.userData.ringTextureA.offset.x = 0;
-                    obstacle.userData.ringTextureA.offset.y = 0;
-
-                    obstacle.userData.ringTextureB.rotation -= spin * 1.55;
-                    obstacle.userData.ringTextureB.offset.x = 0;
-                    obstacle.userData.ringTextureB.offset.y = 0;
-
-                    const breathe = 0.85 + 0.15 * Math.sin(nowSec * 6.6 + phase);
-                    const rfA = obstacle.userData.ringFrontA;
-                    const rbA = obstacle.userData.ringBackA;
-                    const rfB = obstacle.userData.ringFrontB;
-                    const rbB = obstacle.userData.ringBackB;
-                    if (rfA && rfA.material) {
-                        rfA.material.emissiveIntensity = 1.05 + 0.35 * breathe;
-                    }
-                    if (rbA && rbA.material) {
-                        rbA.material.emissiveIntensity = 0.95 + 0.28 * breathe;
-                    }
-                    if (rfB && rfB.material) {
-                        rfB.material.emissiveIntensity = 0.9 + 0.3 * (1 - breathe * 0.75);
-                    }
-                    if (rbB && rbB.material) {
-                        rbB.material.emissiveIntensity = 0.82 + 0.24 * (1 - breathe * 0.75);
-                    }
-                }
-
-                if (shouldUpdateVisualFx && obstacle.userData.type === 'faceBlock' && obstacle.userData.blinkFace) {
-                    if (!isMobile || nowMs >= (obstacle.userData.nextFaceRefreshAt || 0)) {
-                        drawBlinkFace(obstacle.userData.blinkFace, nowMs);
-                        if (isMobile) {
-                            obstacle.userData.nextFaceRefreshAt = nowMs + mobileFaceRefreshIntervalMs;
-                        }
-                    }
-                }
-
-                if (obstacles[i].position.z > 10) {
-                    const obstacleToRemove = obstacles[i];
-                    scene.remove(obstacleToRemove);
-                    obstacles.splice(i, 1);
-                    disposeObject3D(obstacleToRemove, { skipSceneRemove: true });
-                }
+            });
+            sweepMissedRoadEntities(obstacles, moveWindow, (obstacle) => (
+                updateObstacleOnRoad(obstacle, nowMs, nowSec, entityWindows, shouldUpdateVisualFx)
+            ), obstaclesToRemove);
+            for (let i = 0; i < obstaclesToRemove.length; i++) {
+                removeObstacleEntity(obstaclesToRemove[i]);
             }
 
-            // 移动积分
-            for (let i = collectibles.length - 1; i >= 0; i--) {
-                collectibles[i].position.z += config.speed;
-                const fadeStartZ = collectibles[i].userData.fadeStartZ ?? emergenceStartZ;
-                const fadeEndZ = collectibles[i].userData.fadeEndZ ?? emergenceEndZ;
-                const zProgress = getEmergenceProgress(collectibles[i].position.z);
-                const localProgress = Math.max(0, Math.min(1, (collectibles[i].position.z - fadeStartZ) / (fadeEndZ - fadeStartZ)));
-                const appearProgress = smoothstep01(Math.min(zProgress, localProgress));
-                const hiddenY = collectibles[i].userData.hiddenY ?? -1.8;
-                const finalY = collectibles[i].userData.finalY ?? 1;
-                collectibles[i].position.y = hiddenY + (finalY - hiddenY) * appearProgress;
-                collectibles[i].rotation.y += 0.015;
-                if (shouldUpdateVisualFx) {
-                    const pulse = 0.92 + Math.sin(nowMs * 0.006 + i) * 0.1;
-                    const baseScale = collectibles[i].userData.baseScale ?? 1.2;
-                    const fadeScale = 0.55 + appearProgress * 0.45;
-                    collectibles[i].scale.set(pulse * baseScale * fadeScale, pulse * baseScale * fadeScale, pulse * baseScale * fadeScale);
-                    const sparkles = collectibles[i].userData.sparkles || [];
-                    sparkles.forEach((sparkle, idx) => {
-                        const angle = nowSec * sparkle.userData.speed + sparkle.userData.phase;
-                        sparkle.position.x = Math.cos(angle) * sparkle.userData.radius;
-                        sparkle.position.y = Math.sin(angle * 1.2) * 0.05 + sparkle.userData.heightOffset;
-                        sparkle.position.z = Math.sin(angle) * sparkle.userData.radius * 0.15;
-                        const twinkle = 0.26 + (0.18 * Math.sin(nowSec * 5 + idx));
-                        const sparkleProgress = Math.max(0, (appearProgress - 0.2) / 0.6);
-                        sparkle.material.opacity = twinkle * sparkleProgress;
-                        const sizePulse = 0.95 + 0.15 * Math.sin(nowSec * 3.4 + idx);
-                        sparkle.scale.setScalar(sparkle.userData.size * sizePulse);
-                    });
-
-                    const opacityNodes = collectibles[i].userData.opacityNodes || [];
-                    opacityNodes.forEach((node) => {
-                        if (!(collectibles[i].userData.sparkles || []).includes(node)) {
-                            node.material.opacity = appearProgress * 0.98;
-                        }
-                    });
-                    // 更新悬浮概率标签位置（若存在）
-                    try {
-                        const labelEl = collectibles[i].userData.probLabelEl;
-                        if (labelEl && camera) {
-                            tmpProjectVec3.copy(collectibles[i].position).project(camera);
-                            const x = (tmpProjectVec3.x * 0.5 + 0.5) * window.innerWidth;
-                            const y = (-tmpProjectVec3.y * 0.5 + 0.5) * window.innerHeight;
-                            const bobOffset = Math.sin(collectibles[i].rotation.y * 3.2 + nowSec * 2.2) * 2;
-                            labelEl.style.left = `${x}px`;
-                            labelEl.style.top = `${y - 38 + bobOffset}px`;
-                            labelEl.style.transform = 'translate(-50%,-50%)';
-                            labelEl.style.opacity = Math.max(0, Math.min(1, appearProgress)).toString();
-                        }
-                    } catch (e) {}
+            forEachEntityInBucketRange(collectibleBuckets, moveWindow.moveMinZ, moveWindow.moveMaxZ, (collectible) => {
+                if (updateCollectibleOnRoad(collectible, nowMs, nowSec, entityWindows, shouldUpdateVisualFx, shouldProjectLabels)) {
+                    collectiblesToRemove.push(collectible);
                 }
-                if (collectibles[i].position.z > 10) {
-                    if (!collectibles[i].userData.collected) {
-                        currentLevelCollectibleMissed++;
-                    }
-                    // 移除悬浮标签
-                    removeCollectibleProbLabel(collectibles[i]);
-                    const collectibleToRemove = collectibles[i];
-                    scene.remove(collectibleToRemove);
-                    collectibles.splice(i, 1);
-                    disposeObject3D(collectibleToRemove, { skipSceneRemove: true });
+            });
+            sweepMissedRoadEntities(collectibles, moveWindow, (collectible) => (
+                updateCollectibleOnRoad(collectible, nowMs, nowSec, entityWindows, shouldUpdateVisualFx, shouldProjectLabels)
+            ), collectiblesToRemove);
+            for (let i = 0; i < collectiblesToRemove.length; i++) {
+                const collectible = collectiblesToRemove[i];
+                if (!collectible.userData.collected) {
+                    currentLevelCollectibleMissed++;
                 }
+                removeCollectibleProbLabel(collectible);
+                removeCollectibleEntity(collectible);
             }
 
             for (let i = collectibleBursts.length - 1; i >= 0; i--) {
@@ -3587,12 +3813,14 @@
                 // Z window culling: only check near-field obstacles.
                 const zWindowBehind = 8 + config.speed * 8;
                 const zWindowAhead = 5 + config.speed * 4;
-                for (let oi = 0; oi < obstacles.length && !collisionDetected; oi++) {
-                    const obstacle = obstacles[oi];
+                const ballRadiusSq = ballRadius * ballRadius;
+                const collisionWindows = getBallEntityWindows(ballPosition.z);
+                forEachEntityInBucketRange(obstacleBuckets, collisionWindows.collisionMinZ, collisionWindows.collisionMaxZ, (obstacle) => {
+                    if (collisionDetected) return;
                     const scale = obstacle.scale;
                     const position = obstacle.position;
                     const dzWindow = position.z - ballPosition.z;
-                    if (dzWindow < -zWindowBehind || dzWindow > zWindowAhead) continue;
+                    if (dzWindow < -zWindowBehind || dzWindow > zWindowAhead) return;
 
                     const collider = obstacle.userData.collider || { type: 'box', halfX: 0.5, halfY: 0.5, halfZ: 0.5 };
 
@@ -3612,13 +3840,10 @@
                     const closestY = Math.max(minY, Math.min(ballPosition.y, maxY));
                     const closestZ = Math.max(minZ, Math.min(ballPosition.z, maxZ));
 
-                    const distance = Math.sqrt(
-                        Math.pow(ballPosition.x - closestX, 2) +
-                        Math.pow(ballPosition.y - closestY, 2) +
-                        Math.pow(ballPosition.z - closestZ, 2)
-                    );
-
-                    if (distance < ballRadius) {
+                    const dx = ballPosition.x - closestX;
+                    const dy = ballPosition.y - closestY;
+                    const dz = ballPosition.z - closestZ;
+                    if ((dx * dx + dy * dy + dz * dz) < ballRadiusSq) {
                         collisionDetected = true;
                     }
                 } else if (collider.type === 'disk') {
@@ -3645,26 +3870,21 @@
                     // 计算水平距离
                     const dx = ballPosition.x - position.x;
                     const dz = ballPosition.z - position.z;
-                    const horizontalDistance = Math.sqrt(dx * dx + dz * dz);
-
-                    // 计算垂直距离
+                    const horizontalDistanceSq = dx * dx + dz * dz;
+                    const radiusSq = radius * radius;
                     const dy = Math.abs(ballPosition.y - position.y);
 
-                    // 更精确的碰撞检测：球与圆柱表面的距离
-                    let surfaceDistance;
-                    if (horizontalDistance < radius) {
-                        // 球在圆柱正上方或正下方
-                        surfaceDistance = Math.abs(dy) - halfHeight;
+                    let surfaceDistanceSq;
+                    if (horizontalDistanceSq < radiusSq) {
+                        const verticalGap = Math.abs(dy) - halfHeight;
+                        surfaceDistanceSq = verticalGap * verticalGap;
                     } else {
-                        // 球在圆柱侧面
-                        surfaceDistance = Math.sqrt(
-                            Math.pow(horizontalDistance - radius, 2) +
-                            Math.pow(Math.max(0, dy - halfHeight), 2)
-                        );
+                        const horizontalGap = Math.sqrt(horizontalDistanceSq) - radius;
+                        const verticalGap = Math.max(0, dy - halfHeight);
+                        surfaceDistanceSq = horizontalGap * horizontalGap + verticalGap * verticalGap;
                     }
 
-                    // 碰撞判定：小球表面接触到圆柱表面
-                    if (surfaceDistance < ballRadius) {
+                    if (surfaceDistanceSq < ballRadiusSq) {
                         collisionDetected = true;
                     }
                 } else if (collider.type === 'torus') {
@@ -3709,17 +3929,14 @@
                     const closestY = Math.max(minY, Math.min(ballPosition.y, maxY));
                     const closestZ = Math.max(minZ, Math.min(ballPosition.z, maxZ));
 
-                    const distance = Math.sqrt(
-                        Math.pow(ballPosition.x - closestX, 2) +
-                        Math.pow(ballPosition.y - closestY, 2) +
-                        Math.pow(ballPosition.z - closestZ, 2)
-                    );
-
-                    if (distance < ballRadius) {
+                    const dx = ballPosition.x - closestX;
+                    const dy = ballPosition.y - closestY;
+                    const dz = ballPosition.z - closestZ;
+                    if ((dx * dx + dy * dy + dz * dz) < ballRadiusSq) {
                         collisionDetected = true;
                     }
                 }
-                }
+                });
             }
 
             if (collisionDetected) {
@@ -3728,8 +3945,9 @@
             }
 
             // 检测积分收集 - 严格判定，碰到即算
-            for (let i = collectibles.length - 1; i >= 0; i--) {
-                const collectible = collectibles[i];
+            const pickupWindows = getBallEntityWindows(ballPosition.z);
+            forEachEntityInBucketRange(collectibleBuckets, pickupWindows.collisionMinZ, pickupWindows.collisionMaxZ, (collectible) => {
+                if (game.gameOver || collectible.userData.collected) return;
                 const scale = collectible.scale;
                 const position = collectible.position;
 
@@ -3754,11 +3972,9 @@
                         activateOrRefreshSprint();
                         // 检查升级
                         removeCollectibleProbLabel(collectible);
-                        scene.remove(collectible);
-                        collectibles.splice(i, 1);
-                        disposeObject3D(collectible, { skipSceneRemove: true });
+                        removeCollectibleEntity(collectible);
                         checkLevelUp();
-                        continue;
+                        return;
                     }
 
                     // 若为红色积分，判定死亡概率
@@ -3780,11 +3996,9 @@
                                 lastCollisionBallPos: lastCollisionBallPos ? { ...lastCollisionBallPos } : null
                             };
                             removeCollectibleProbLabel(collectible);
-                            scene.remove(collectible);
-                            collectibles.splice(i, 1);
-                            disposeObject3D(collectible, { skipSceneRemove: true });
+                            removeCollectibleEntity(collectible);
                             endGame();
-                            return; // 退出当前检测循环分支
+                            return;
                         }
 
                         // 赌命成功：正常计分
@@ -3800,14 +4014,11 @@
 
                     // 移除悬浮标签（若存在）
                     removeCollectibleProbLabel(collectible);
-                    scene.remove(collectible);
-                    collectibles.splice(i, 1);
-                    disposeObject3D(collectible, { skipSceneRemove: true });
+                    removeCollectibleEntity(collectible);
 
-                    // 检查升级
                     checkLevelUp();
                 }
-            }
+            });
         }
 
         // 检查升级
@@ -4321,11 +4532,22 @@
                 camera.lookAt(camTargetX, camLookAtY, ball.position.z + 5.3);
             }
 
+            let renderMs = 0;
             if (renderer && scene && camera) {
+                const renderStartMs = performance.now();
                 renderer.render(scene, camera);
+                renderMs = performance.now() - renderStartMs;
+                if (renderer.info && renderer.info.render) {
+                    perfStats.renderCalls = renderer.info.render.calls;
+                    perfStats.renderTriangles = renderer.info.render.triangles;
+                    perfStats.renderPoints = renderer.info.render.points;
+                }
             }
 
             const frameMs = performance.now() - frameStartMs;
+            const logicMs = Math.max(0, frameMs - renderMs);
+            perfStats.lastRenderMs = renderMs;
+            perfStats.lastLogicMs = logicMs;
             if (game.running && !game.gameOver && !game.paused && ball) {
                 updateAdaptiveQuality(frameMs);
             }
@@ -4344,9 +4566,17 @@
                     collectiblesCount: collectibles.length,
                     roadMs,
                     generateMs: perfStats.lastGenerateMs,
+                    spawnPlanMs: perfStats.lastSpawnPlanMs,
+                    renderMs: perfStats.lastRenderMs,
+                    logicMs: perfStats.lastLogicMs,
                     pendingSegments: perfStats.pendingSegments,
+                    pendingSpawnWork: perfStats.pendingSpawnWork,
+                    segmentBacklog: perfStats.segmentBacklog,
                     adaptivePixelRatio: perfStats.adaptivePixelRatio,
-                    adaptiveFxStep: perfStats.adaptiveFxStep
+                    adaptiveFxStep: perfStats.adaptiveFxStep,
+                    renderCalls: perfStats.renderCalls,
+                    renderTriangles: perfStats.renderTriangles,
+                    renderPoints: perfStats.renderPoints
                 });
                 // Keep UI in sync even if gameplay doesn't call updateUI frequently.
                 updateUI();
